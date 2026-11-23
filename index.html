@@ -211,6 +211,11 @@
     .chart-wrap svg{display:block;width:100%;height:auto;max-height:200px;background:#17241b;border-radius:12px}
     .chart-wrap .row{margin-top:11px}
 
+    .rest-actions{display:grid;grid-template-columns:1fr 1fr;gap:9px}
+    .rest-actions .btn{min-height:46px;font-size:13px;padding:10px 8px}
+    .rest-actions [data-action="skip-rest"]{grid-column:1/-1;min-height:52px;font-size:15px}
+    @media(min-width:430px){.rest-actions{grid-template-columns:1fr 1fr 1.2fr}.rest-actions [data-action="skip-rest"]{grid-column:auto}}
+
     @media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important;transition:none!important}}
   </style>
 </head>
@@ -236,7 +241,7 @@
     B:['leg_press','row','chest_press','pulldown','rdl','pec_fly','curls']
   };
   const DEFAULT = () => ({
-    settings:{ comeback:true, warmup:6, cardio:15, incline:2, bigRest:90, smallRest:60, sound:true, proteinCheck:false },
+    settings:{ comeback:true, warmup:6, cardio:15, incline:2, bigRest:90, smallRest:60, sound:true, proteinCheck:false, restAlerts:false },
     weights:Object.fromEntries(Object.entries(EXERCISES).map(([id,x]) => [id,x.weight])),
     planned:{}, planSets:{A:{},B:{}}, checkins:{}, proteinDays:{}, sessions:[], measurements:[], active:null
   });
@@ -657,8 +662,15 @@
   }
   function remaining(timer){if(!timer)return 0;return timer.paused?timer.left:Math.max(0,Math.ceil((timer.until-Date.now())/1000));}
   function restMarkup(r){
-    return `<div class="timerpanel rest-focus"><div class="stepindicator">RECOVER · NEXT SET SOON</div><div class="count" id="clock-display" aria-label="Time remaining">${fmtTime(remaining(r))}</div>
-      <div class="controlrow"><button class="btn ghost" data-action="toggle-rest">${r.paused?'Resume timer':'Pause timer'}</button><button class="btn primary" data-action="skip-rest">Ready now →</button></div></div>`;
+    return `<div class="timerpanel rest-focus"><div class="stepindicator">REST BETWEEN SETS</div>
+      <div class="count" id="clock-display" aria-label="Time remaining">${fmtTime(remaining(r))}</div>
+      <div class="rest-actions">
+        <button class="btn ghost" data-action="toggle-rest">${r.paused?'Resume':'Pause'}</button>
+        <button class="btn ghost" data-action="add-rest">+30 sec</button>
+        <button class="btn primary" data-action="skip-rest">Ready now</button>
+      </div>
+      <p class="tiny muted" style="margin:12px 0 0">Need longer? Add 30 seconds. Rest until you can lift with good technique.</p>
+    </div>`;
   }
   function treadMarkup(step){
     const t=state.active.timer?.stepId===step.id?state.active.timer:null;
@@ -686,7 +698,14 @@
       <button class="btn ${timerFinished?'primary':'ghost'} block tread-complete" data-action="done-tread">${icon('check')} <span>Mark complete &amp; continue</span></button>`;
   }
   function beep(){if(!state.settings.sound)return;try{const A=window.AudioContext||window.webkitAudioContext;if(!A)return;const c=new A(),o=c.createOscillator(),g=c.createGain();o.type='sine';o.frequency.value=770;g.gain.setValueAtTime(0.0001,c.currentTime);g.gain.exponentialRampToValueAtTime(.12,c.currentTime+.02);g.gain.exponentialRampToValueAtTime(.0001,c.currentTime+.3);o.connect(g).connect(c.destination);o.start();o.stop(c.currentTime+.31);setTimeout(()=>c.close(),600);}catch{}try{navigator.vibrate?.([100,80,100]);}catch{}}
-  function tick(){const active=state.active;if(!active)return;const timer=active.rest||active.timer;if(!timer)return;const el=$('#clock-display');if(el)el.textContent=fmtTime(remaining(timer));if(remaining(timer)===0&&!timer.paused){if(active.rest){active.rest=null;save();beep();render();toast('Rest finished — next set');}else if(active.timer&&!active.timer.notified){active.timer.notified=true;save();beep();toast('Time complete! Mark the walk done');}}}
+  function notifyRestFinished(){
+    if(!state.settings.restAlerts||typeof Notification==='undefined'||Notification.permission!=='granted')return;
+    try{navigator.serviceWorker?.ready.then(reg=>reg.showNotification('REPS · Rest finished',{
+      body:'Ready for your next set when you are.',
+      tag:'reps-rest',renotify:false,icon:'./icon-192.png',
+    })).catch(()=>{});}catch{}
+  }
+  function tick(){const active=state.active;if(!active)return;const timer=active.rest||active.timer;if(!timer)return;const el=$('#clock-display');if(el)el.textContent=fmtTime(remaining(timer));if(remaining(timer)===0&&!timer.paused){if(active.rest){active.rest=null;save();beep();notifyRestFinished();render();toast('Rest finished — next set');}else if(active.timer&&!active.timer.notified){active.timer.notified=true;save();beep();toast('Time complete! Mark the walk done');}}}
   function startClock(kind,stepId,secs){const timer={stepId,paused:false,left:secs,until:Date.now()+secs*1000,notified:false};if(kind==='rest')state.active.rest=timer;else state.active.timer=timer;save();render();}
   function toggleClock(kind){const t=state.active?.[kind];if(!t)return;if(t.paused){t.paused=false;t.until=Date.now()+t.left*1000;}else{t.left=remaining(t);t.paused=true;}save();render();}
   function getStepAfter(){const s=state.active;let n=s.stepIndex+1;if(n>=s.steps.length){finishWorkout();return;}s.stepIndex=n;s.rest=null;s.timer=null;save();render();scrollTop();}
@@ -717,6 +736,9 @@
     ${settingNumber('Cardio treadmill','cardio',state.settings.cardio,'minutes',5,45,1)}
     ${settingNumber('Cardio incline','incline',state.settings.incline,'%',0,15,.5)}
     ${settingSwitch('Timer sound and vibration','Hear / feel when a rest finishes (where supported).','sound',state.settings.sound)}
+    <div class="setting-row row"><div><strong class="small">Optional rest notifications</strong>
+      <p class="tiny muted" style="margin:4px 16px 0 0">Can notify when a rest ends while the app is running. Android may delay notifications if the browser is suspended; not guaranteed on a locked phone.</p>
+      </div><button class="btn ghost smallbtn" data-action="toggle-alerts">${state.settings.restAlerts?'Turn off':'Enable'}</button></div>
     ${settingSwitch('Optional protein check-in','Show one gentle daily protein tick on Today. No timed alerts or supplement reminders.','proteinCheck',!!state.settings.proteinCheck)}</div>
     <details class="disclosure"><summary>Default starting weights</summary><div class="panel"><p class="small muted">Your last logged weight is suggested first. These are editable starting values, <strong>not targets you must reach</strong>. Dumbbell values are per hand.</p>${Object.entries(EXERCISES).map(([id,x])=>`<div class="weightrow"><div class="small"><strong>${esc(x.name)}</strong><div class="tiny muted">${x.unit}</div></div><input aria-label="Starting weight for ${esc(x.name)}" data-weight="${id}" type="number" min="0" max="1000" step="0.5" inputmode="decimal" placeholder="—" value="${esc(state.weights[id])}" /></div>`).join('')}</div></details>
     ${sectionTitle('Back up your progress')}<div class="panel"><p class="small muted">Your data is stored on this device, not automatically in the cloud. Download a backup or share one to Google Drive from your phone. Save a new backup occasionally.</p><div class="flexwrap"><button class="btn primary" data-action="export">${icon('download')} Download backup</button><button class="btn ghost" data-action="share-backup">Share / save to Drive</button><label class="btn ghost" for="importFile" style="cursor:pointer">Import backup</label><input id="importFile" type="file" accept=".json,application/json" hidden /></div></div>
@@ -768,6 +790,17 @@
       if(!['easy','good','hard'].includes(effort)||!fullStrength(step))return;
       step.effort=effort;save();render();toast('Effort recorded');return;
     }
+    if(action==='toggle-alerts'){
+      if(state.settings.restAlerts){state.settings.restAlerts=false;save();render();return;}
+      if(!('Notification' in window)||!('serviceWorker' in navigator)||!window.isSecureContext){toast('Notifications not supported here');return;}
+      try{
+        Notification.requestPermission().then(permission=>{
+          state.settings.restAlerts=permission==='granted';
+          save();render();toast(state.settings.restAlerts?'Rest notifications enabled':'Notifications not enabled');
+        }).catch(()=>toast('Could not request notifications'));
+      }catch{toast('Notification permission unavailable');}
+      return;
+    }
     if(action==='toggle-protein'){
       if(!state.settings.proteinCheck)return;
       const date=localDate();
@@ -809,6 +842,12 @@
     if(action==='logset'&&s&&step?.type==='strength') {const data=readSetInput();if(!data)return;const idx=currentSet(step);if(idx<0)return;step.sets[idx]={...data,completed:true};step.draftWeight=data.weight;step.draftReps=data.reps;state.weights[step.id]=data.weight;state.planned[step.id]={...state.planned[step.id],weight:data.weight};if(idx===step.sets.length-1){step.done=true;save();render();scrollTop();toast('All sets done');}else{save();startClock('rest',step.id,restSeconds(step.id));scrollTop();}return;}
     if(action==='undo-set'&&s&&step?.type==='strength'){s.editingSet=null;const idx=step.sets.map((x,i)=>x.completed?i:-1).filter(x=>x>=0).pop();if(idx===undefined)return;step.sets[idx].completed=false;step.done=false;s.rest=null;save();render();return;}
     if(action==='next'&&s)return getStepAfter();
+    if(action==='add-rest'&&s&&s.rest){
+      const r=s.rest;
+      if(r.paused)r.left=Math.min(1200,r.left+30);
+      else{const next=remaining(r)+30;r.until=Date.now()+Math.min(1200,next)*1000;}
+      save();render();return;
+    }
     if(action==='skip-rest'&&s){s.rest=null;save();render();return;}
     if(action==='toggle-rest'&&s)return toggleClock('rest');
     if(action==='start-tread'&&s&&step?.type==='tread')return startClock('timer',step.id,step.minutes*60);
