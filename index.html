@@ -211,11 +211,25 @@
     }
     return {xp,level:1+Math.floor(xp/250),progress:xp%250,next:250-xp%250,records};
   }
+  function exerciseTrend(id){
+    const recent=strengthHistory(id).filter(x=>fullStrength(x.step)).slice(-2);
+    if(recent.length<2)return 'More sessions needed for a trend';
+    const a=recent[0].step,b=recent[1].step;
+    const first=stableLoad(a),second=stableLoad(b);
+    if(first===null||second===null)return 'Mixed training loads — no direct comparison';
+    const avg=x=>x.sets.reduce((sum,set)=>sum+Number(set.reps),0)/x.sets.length;
+    const aReps=avg(a),bReps=avg(b);
+    if(second>first&&bReps>=Math.min(aReps,targetReps(id)))return 'Improving — heavier working weight';
+    if(first===second&&bReps>aReps+0.25)return 'Improving — more reps at the same weight';
+    if(first===second&&Math.abs(aReps-bReps)<=0.25)return 'Maintaining — consistent performance';
+    if(first===second&&bReps<aReps-0.25)return 'Tougher session — no increase needed';
+    return 'Changing loads — keep logging for a trend';
+  }
   function coachCard(a,brief=false){
     return `<div class="coach-card">
       <div class="row"><h3>${esc(a.name)}</h3><span class="coach-flag ${a.status==='ready'?'ready':a.status==='hold'?'hold':''}">${esc(a.label)}</span></div>
       <p>${esc(a.text)}</p>
-      <div class="tiny muted">${a.pb?'Personal best: '+fmtN(a.pb.weight)+' '+esc(EXERCISES[a.id].unit)+' × '+a.pb.reps+' reps':'No personal best yet'}${brief?'':' · '+esc(a.last)}</div>
+      <div class="tiny muted"><strong style="color:#d7edc2">${esc(exerciseTrend(a.id))}</strong><div style="margin-top:5px">${a.pb?'Personal best: '+fmtN(a.pb.weight)+' '+esc(EXERCISES[a.id].unit)+' × '+a.pb.reps+' reps':'No personal best yet'}${brief?'':' · '+esc(a.last)}</div></div>
     </div>`;
   }
   function coachView(){
