@@ -100,7 +100,7 @@
       active:saved.active&&Array.isArray(saved.active.steps)?saved.active:null
     };
   }
-  let state=load(), view='today', planTab='A', expandedHistory=null, showMeasureForm=false, toastTimer;
+  let state=load(), view='today', planTab='A', planEditorOpen=false, expandedHistory=null, justFinishedId=null, showMeasureForm=false, toastTimer;
   let timerTick=null;
   function save(){ try {localStorage.setItem(STORAGE_KEY,JSON.stringify(state));} catch { toast('Could not save — storage may be full'); } }
   const $=s=>document.querySelector(s);
@@ -247,7 +247,9 @@
         <button class="btn primary block" data-action="save-checkin">Save today's check-in</button>
         <div class="divider"></div><div class="coach-note ${r.state==='caution'?'caution':''}"><strong>${esc(r.label)}</strong><p class="small" style="margin:5px 0 0">${esc(r.text)}</p></div>
       </div>
-      ${sectionTitle('Your strength gains')}<div>${ids.map(id=>coachCard(coachAdvice(id))).join('')}</div>
+      ${sectionTitle('Your next move')}
+      <div>${coachCard(coachAdvice((ids.find(id=>coachAdvice(id).status==='ready')||ids.find(id=>coachAdvice(id).status==='hold')||ids.find(id=>coachAdvice(id).status==='build')||ids[0])))}</div>
+      <details class="disclosure"><summary>All exercise guidance <span>${ids.length} exercises</span></summary><div>${ids.map(id=>coachCard(coachAdvice(id))).join('')}</div></details>
       ${sectionTitle('Treadmill progression')}<div class="panel"><h3>Cardio progress</h3><p class="small muted mb0">${esc(cardioAdvice())}</p></div>
       <p class="footertext">Coach suggestions are conservative rules based on logged sets and effort, not a medical or biological recovery test. Always use good technique.</p>`;
   }
@@ -261,16 +263,31 @@
     return 'Stay consistent. Once the same duration and incline feel easy across two walks, progress one setting gently.';
   }
 
-  function todayView(){ if(state.active)return liveView();
-    const date=nextWorkoutDate(), variant=scheduled(date)||'A';const now=new Date();const isToday=localDate(date)===localDate(now);const count=weeklySummary();const last=lastSession();
-    const phase=state.settings.comeback?'Comeback phase · reduced sets':'Building phase · full sets';
-    return `<button class="btn ghost smallbtn" style="margin:0 0 15px" data-action="back-plan" aria-label="Back to My Plan">← Back to My Plan</button><p class="eyebrow">${now.toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long'})}</p>
-      <section class="hero"><span class="pill">${isToday?'● TODAY IS TRAINING DAY':'NEXT UP · '+fmtDate(localDate(date))}</span><h1>Workout ${variant}.<br>Stronger every week.</h1><p class="sub">Your full-body routine, set by set. I'll keep track of the weight, repetitions and rest so you can focus on lifting.</p><div class="hero-actions"><button class="btn primary big" data-action="start" data-variant="${variant}">${icon('play')} Start workout ${variant}</button><button class="btn ghost" data-nav="plan">View exercises ${icon('arrow')}</button></div></section>
-      ${sectionTitle('This week')}<div class="grid2"><div class="stat"><div class="label">Sessions finished</div><div class="num">${count}<span style="font-size:15px;color:var(--muted)"> / 3</span></div><div class="label">Mon · Wed · Fri</div></div><div class="stat"><div class="label">Last session</div><div class="num" style="font-size:${last?'23':'27'}px">${last?'Workout '+esc(last.variant):'—'}</div><div class="label">${last?fmtDate(last.date):'First workout ahead'}</div></div></div>
-      ${sectionTitle('REPS Coach')}<div class="panel"><div class="row"><div><strong>Level ${trainingXP().level} · ${trainingXP().xp} XP</strong><p class="small muted" style="margin:6px 0 0">See your latest training advice and strength records.</p></div><button class="btn smallbtn primary" data-nav="coach">View Coach</button></div></div>
-      ${sectionTitle('Your starting point')}<div class="panel"><div class="row"><strong>${esc(phase)}</strong><span class="badge">${state.settings.comeback?'2 weeks back':'In progress'}</span></div><p class="small muted" style="margin:9px 0 0">${state.settings.comeback?'Because you had time away, 2 sets is the suggested starting point for big machines. You can choose 3 sets for any exercise in My Plan.':'Your suggested set counts can be changed separately for Workout A and B in My Plan. Keep 1–3 good reps in reserve.'}</p></div>
-      ${sectionTitle('Today’s plan',`Workout ${variant}`)}${planList(variant,true)}
-      <p class="footertext">Your workout history is saved in this browser. Back it up in Settings if you change phones.</p>`;
+  function todayView(){
+    if(state.active)return liveView();
+    const date=nextWorkoutDate(),variant=scheduled(date)||'A',now=new Date();
+    const isToday=localDate(date)===localDate(now);
+    const count=weeklySummary(),last=lastSession(),xp=trainingXP();
+    const setTotal=PLANS[variant].reduce((n,id)=>n+exerciseSets(id,variant),0);
+    const strengthInsights=[...new Set(PLANS[variant])].map(id=>coachAdvice(id));
+    const highlight=strengthInsights.find(x=>x.status==='ready')||strengthInsights.find(x=>x.status==='hold')||strengthInsights.find(x=>x.status==='build');
+    return `<div class="page-intro"><button class="text-link" data-nav="plan">← My Plan</button><p class="eyebrow">${now.toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long'})}</p><h1>Your next session.</h1></div>
+      <section class="hero home-hero">
+        <span class="pill">${isToday?'YOUR TRAINING DAY':'NEXT SESSION · '+fmtDate(localDate(date))}</span>
+        <h2>Workout ${variant}</h2>
+        <p class="sub">${PLANS[variant].length} exercises · ${setTotal} sets · ${state.settings.warmup+state.settings.cardio} min treadmill</p>
+        <button class="btn primary big block" data-action="start" data-variant="${variant}">${icon('play')} Start Workout ${variant}</button>
+        <button class="text-link hero-secondary" data-nav="plan">Change exercises, sets or weights</button>
+      </section>
+      <div class="home-metrics">
+        <div><span class="small muted">This week</span><strong>${count} <small>/ 3 workouts</small></strong></div>
+        <div><span class="small muted">Training level</span><strong>${xp.level} <small>· ${xp.xp} XP</small></strong></div>
+      </div>
+      <button class="coach-preview" data-nav="coach">
+        <span class="coach-preview-icon">↗</span><span class="coach-preview-copy"><strong>${highlight?esc(highlight.label):'Start building momentum'}</strong><small>${highlight?esc(highlight.name)+' · '+esc(highlight.text):'Your Coach will learn from completed workouts.'}</small></span><span aria-hidden="true">›</span>
+      </button>
+      <details class="disclosure"><summary>See Workout ${variant} exercise order <span>${PLANS[variant].length+2} steps</span></summary>${planList(variant,true)}</details>
+      ${last?`<p class="footertext">Last workout: ${fmtDate(last.date)} · Workout ${esc(last.variant)}. Your history stays saved on this device.</p>`:`<p class="footertext">Your starting weights are suggestions. Start comfortably, then build up as you recover.</p>`}`;
   }
   function planList(v,showCard=false){let ids=PLANS[v], items=[{type:'tread',name:'Treadmill warm-up',meta:`${state.settings.warmup} min · easy pace`,dose:'START'}];items.push(...ids.map(id=>({type:'strength',id,name:EXERCISES[id].name,meta:EXERCISES[id].gear,dose:`${exerciseSets(id,v)} × ${targetReps(id)}`,rest:`${restSeconds(id)}s rest`})));items.push({type:'tread',name:'Incline treadmill walk',meta:`${state.settings.cardio} min · ${state.settings.incline}% incline`,dose:'FINISH'});const inner=items.map((x,i)=>`<div class="exercise-item"><div class="ex-number">${String(i+1).padStart(2,'0')}</div><div class="main"><strong>${esc(x.name)}</strong><span>${esc(x.meta)}</span></div><div class="dose">${x.dose}<small>${x.rest||''}</small></div></div>`).join('');return showCard?`<div class="panel">${inner}</div>`:inner;}
   function targetsMarkup(variant){
@@ -291,11 +308,23 @@
       <p class="tiny muted" style="margin:12px 0 0">Changes apply to your next workout, not one already in progress. Custom set counts take priority over Comeback mode.</p>
     </div>`;
   }
-  function planView(){const start=nextWorkoutDate(),days=[];const monday=new Date(start.getFullYear(),start.getMonth(),start.getDate()-(start.getDay()+6)%7);for(let i=0;i<7;i++){let d=new Date(monday.getFullYear(),monday.getMonth(),monday.getDate()+i);days.push({date:d,variant:scheduled(d)});}return `<p class="eyebrow">Your training schedule</p><h1>Simple. Repeatable.<br>Progressive.</h1><p class="muted small">Three full-body sessions every week. Alternate A and B for balanced training and recovery.</p>
-    <div class="panel"><h3>Monday / Wednesday / Friday</h3><div class="stack" style="margin-top:14px">${days.map(x=>`<div class="weekday ${localDate(x.date)===localDate()?'today':''}"><div class="day">${x.date.toLocaleDateString('en-GB',{weekday:'short'})}</div><div class="${x.variant?'work':'off'}">${x.variant?'Workout '+x.variant:'Recovery / walking'}</div></div>`).join('')}</div></div>
-    ${sectionTitle('Exercise order')}<div class="switcher" role="group" aria-label="Choose workout"><button class="${planTab==='A'?'active':''}" data-plan="A">Workout A</button><button class="${planTab==='B'?'active':''}" data-plan="B">Workout B</button></div>
-    <div class="panel" style="margin-top:12px">${planList(planTab)}</div>${sectionTitle('Your sets, weights & reps')}${targetsMarkup(planTab)}<button class="btn primary block" data-action="start" data-variant="${planTab}">Start workout ${planTab} ${icon('arrow')}</button>
-    <div class="panel" style="margin-top:18px"><h3>How to progress</h3><p class="small muted mb0">Finish most sets feeling like you could manage 1–3 more controlled repetitions. Once all sets at a weight feel comfortable, try 11–12 reps, then increase the weight by the smallest available increment. Don't chase heavier weights at the expense of technique.</p></div>`;}
+  function planView(){
+    const start=nextWorkoutDate(),days=[];
+    const monday=new Date(start.getFullYear(),start.getMonth(),start.getDate()-(start.getDay()+6)%7);
+    for(let i=0;i<7;i++){const d=new Date(monday.getFullYear(),monday.getMonth(),monday.getDate()+i);days.push({date:d,variant:scheduled(d)});}
+    const planSetsTotal=PLANS[planTab].reduce((n,id)=>n+exerciseSets(id,planTab),0);
+    return `<div class="page-intro"><p class="eyebrow">YOUR ROUTINE</p><h1>My Plan.</h1><p class="small muted">Monday, Wednesday and Friday · alternate A / B.</p></div>
+      <div class="switcher" role="group" aria-label="Choose workout"><button class="${planTab==='A'?'active':''}" data-plan="A">Workout A</button><button class="${planTab==='B'?'active':''}" data-plan="B">Workout B</button></div>
+      <section class="plan-start">
+        <div><span class="stepindicator">${PLANS[planTab].length} EXERCISES · ${planSetsTotal} SETS</span><h2>Workout ${planTab}</h2><p class="small muted mb0">Warm-up → strength → incline walk</p></div>
+        <button class="btn primary big block" data-action="start" data-variant="${planTab}">${icon('play')} ${state.active?'Resume Workout '+state.active.variant:'Start Workout '+planTab}</button>
+      </section>
+      <button class="edit-toggle" data-action="toggle-plan-editor" aria-expanded="${planEditorOpen}" aria-controls="plan-editor-panel"><span><strong>Sets, weights & reps</strong><small>Tap to ${planEditorOpen?'hide':'edit'} your workout targets</small></span><span aria-hidden="true">${planEditorOpen?'−':'+'}</span></button>
+      ${planEditorOpen?`<div id="plan-editor-panel">${targetsMarkup(planTab)}</div>`:''}
+      <details class="disclosure"><summary>Exercise order <span>${PLANS[planTab].length+2} steps</span></summary>${planList(planTab,true)}</details>
+      <details class="disclosure"><summary>Weekly schedule</summary><div class="panel"><div class="stack">${days.map(x=>`<div class="weekday ${localDate(x.date)===localDate()?'today':''}"><div class="day">${x.date.toLocaleDateString('en-GB',{weekday:'short'})}</div><div class="${x.variant?'work':'off'}">${x.variant?'Workout '+x.variant:'Rest / walking'}</div></div>`).join('')}</div></div></details>
+      <p class="footertext">Changes to sets and reps apply to your next workout. A workout already in progress stays as it was.</p>`;
+  }
   function newSession(variant){const steps=[{type:'tread',id:'warmup',title:'Treadmill warm-up',minutes:Number(state.settings.warmup),incline:0,desc:'Easy walking pace, 0–1% incline to warm your body up.',done:false,skipped:false}];
     for(const id of PLANS[variant]){const x=EXERCISES[id],count=exerciseSets(id,variant),weight=plannedWeight(id),reps=targetReps(id);steps.push({type:'strength',id,title:x.name,targetReps:reps,targetSets:count,sets:Array.from({length:count},()=>({weight:'',reps,completed:false})),draftWeight:weight,draftReps:reps,done:false,skipped:false});}
     steps.push({type:'tread',id:'cardio',title:'Incline treadmill walk',minutes:Number(state.settings.cardio),incline:Number(state.settings.incline),desc:'Moderate pace: breathe harder but still be able to talk. Start with 1–3% incline and adjust comfortably.',done:false,skipped:false});
@@ -398,7 +427,10 @@
   function settingSwitch(label,desc,key,v){return `<div class="setting-row row"><div><strong class="small">${label}</strong><p class="tiny muted" style="margin:4px 16px 0 0">${desc}</p></div><input type="checkbox" class="toggle" role="switch" aria-label="${label}" data-setting="${key}" ${v?'checked':''}></div>`;}
   function settingNumber(label,key,value,unit,min,max,step){return `<div class="setting-row row"><div><strong class="small">${label}</strong><div class="tiny muted">${unit}</div></div><div class="field"><input type="number" aria-label="${label}" data-setting="${key}" value="${value}" min="${min}" max="${max}" step="${step}" inputmode="decimal"></div></div>`;}
   function render(){const main=$('#app');main.innerHTML=header()+(view==='today'?todayView():view==='plan'?planView():view==='coach'?coachView():view==='history'?historyView():settingsView())+navbar();tick();}
-  function startWorkout(variant){if(state.active){if(!confirm('You already have a workout in progress. Resume it instead? Press Cancel to keep your current workout.')){view='today';render();return;}view='today';render();return;}state.active=newSession(variant);save();view='today';render();scrollTop();}
+  function startWorkout(variant){
+    if(!state.active){if(!PLANS[variant])return;state.active=newSession(variant);save();}
+    view='today';render();scrollTop();
+  }
   function readSetInput(weightSelector='#weight',repsSelector='#reps'){const step=stepData();if(!step)return null;const weightEl=$(weightSelector),repsEl=$(repsSelector);if(!weightEl||!repsEl)return null;const weight=weightEl.value.trim(),reps=repsEl.value.trim();if(weight===''||!Number.isFinite(Number(weight))||Number(weight)<0||Number(weight)>1000){toast('Enter a valid weight (0 is fine for bodyweight)');weightEl.focus();return null;}if(!Number.isInteger(Number(reps))||Number(reps)<1||Number(reps)>100){toast('Enter a valid repetition count');repsEl.focus();return null;}return{weight:Number(weight),reps:Number(reps)};}
   function handleAction(action,el){let s=state.active,step=stepData();
     if(action==='back-plan'||action==='save-exit'){
@@ -426,6 +458,7 @@
       if(![energy,soreness,sleep].every(x=>Number.isInteger(x)&&x>=1&&x<=5)){toast('Choose energy, soreness and sleep');return;}
       state.checkins[localDate()]={energy,soreness,sleep};save();render();toast('Check-in saved');return;
     }
+    if(action==='toggle-plan-editor'){planEditorOpen=!planEditorOpen;render();return;}
     if(action==='start')return startWorkout(el.dataset.variant);
     if(action==='set-all-3'||action==='reset-plan-sets'){
       const variant=el.dataset.variant;
