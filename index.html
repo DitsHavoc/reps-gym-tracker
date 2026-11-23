@@ -221,9 +221,9 @@
     B:['leg_press','row','chest_press','pulldown','rdl','pec_fly','curls']
   };
   const DEFAULT = () => ({
-    settings:{ comeback:true, warmup:6, cardio:15, incline:2, bigRest:90, smallRest:60, sound:true },
+    settings:{ comeback:true, warmup:6, cardio:15, incline:2, bigRest:90, smallRest:60, sound:true, proteinCheck:false },
     weights:Object.fromEntries(Object.entries(EXERCISES).map(([id,x]) => [id,x.weight])),
-    planned:{}, planSets:{A:{},B:{}}, checkins:{}, sessions:[], measurements:[], active:null
+    planned:{}, planSets:{A:{},B:{}}, checkins:{}, proteinDays:{}, sessions:[], measurements:[], active:null
   });
   function load() {
     let saved;
@@ -236,12 +236,13 @@
       planned:saved.planned&&typeof saved.planned==='object'?saved.planned:{},
       planSets:{A:{...(saved.planSets?.A||{})},B:{...(saved.planSets?.B||{})}},
       checkins:saved.checkins&&typeof saved.checkins==='object'?saved.checkins:{},
+      proteinDays:saved.proteinDays&&typeof saved.proteinDays==='object'?saved.proteinDays:{},
       sessions:Array.isArray(saved.sessions)?saved.sessions:[],
       measurements:Array.isArray(saved.measurements)?saved.measurements:[],
       active:saved.active&&Array.isArray(saved.active.steps)?saved.active:null
     };
   }
-  let state=load(), view='today', planTab='A', planEditorOpen=false, expandedHistory=null, justFinishedId=null, showMeasureForm=false, toastTimer;
+  let state=load(), view='today', planTab='A', planEditorOpen=false, expandedHistory=null, justFinishedId=null, showMeasureForm=false, chartExercise='leg_press', toastTimer;
   let timerTick=null;
   function save(){ try {localStorage.setItem(STORAGE_KEY,JSON.stringify(state));} catch { toast('Could not save — storage may be full'); } }
   const $=s=>document.querySelector(s);
@@ -279,7 +280,13 @@
   function weeklySummary(){let today=startOfDay(new Date()); const mon=new Date(today.getFullYear(),today.getMonth(),today.getDate()-(today.getDay()+6)%7);const sun=new Date(mon.getFullYear(),mon.getMonth(),mon.getDate()+7);return state.sessions.filter(x=>{const d=new Date(`${x.date}T12:00:00`);return d>=mon&&d<sun;}).length;}
   function lastSession(){return state.sessions.slice().sort((a,b)=>(b.finishedAt||0)-(a.finishedAt||0))[0];}
   function completedCount(s){return s.steps.filter(x=>x.done||x.skipped).length;}
-  function totalVolume(s){return s.steps.filter(x=>x.type==='strength').flatMap(x=>x.sets).filter(x=>x.completed).reduce((v,x)=>v+Number(x.weight||0)*Number(x.reps||0),0);}
+  function totalVolume(s){
+    // Dumbbells are logged per hand. Multiply load by two when both hands work.
+    return (s.steps||[]).filter(x=>x.type==='strength').reduce((total,step)=>{
+      const multiplier=EXERCISES[step.id]?.unit==='kg/hand'?2:1;
+      return total+(step.sets||[]).filter(x=>x.completed).reduce((v,set)=>v+Number(set.weight||0)*Number(set.reps||0)*multiplier,0);
+    },0);
+  }
 
   // Coaching is rule-based guidance from logged training, not a muscle-growth measurement.
   function strengthHistory(id){
@@ -335,6 +342,77 @@
     if(step.effort==='easy'&&history.length===1)return {...base,status:'build',label:'Looking promising',text:'That weight felt easy. Repeat it for another complete session before moving up.',last};
     return {...base,status:'build',label:'Build your reps',text:'Stay at '+fmtN(load)+' '+unit+'. Try to add a controlled repetition to a set when comfortable, working towards '+(target+2)+' reps per set.',last};
   }
+  // Uses only the user's recorded finished sessions, never fabricated workout data.
+  function previousPerformance(id){
+    const entry=strengthHistory(id).at(-1);
+    if(!entry)return null;
+    const sets=(entry.step.sets||[]).filter(x=>x.completed&&Number.isFinite(Number(x.reps))&&x.weight!=='');
+    return sets.length?{date:entry.session.date,sets,effort:entry.step.effort||null}:null;
+  }
+  function lastTimeMarkup(id){
+    const prev=previousPerformance(id);
+    if(!prev)return `<div class="last-time"><strong>First time logging this exercise</strong><span>Pick a comfortable weight and aim for controlled reps.</span></div>`;
+    const unit=EXERCISES[id].unit;
+    const same=prev.sets.every(set=>Number(set.weight)===Number(prev.sets[0].weight));
+    const reps=prev.sets.map(set=>set.reps).join(' / ');
+    const summary=same?`${fmtN(Number(prev.sets[0].weight))} ${unit} · ${reps} reps`
+      :prev.sets.map(set=>`${fmtN(Number(set.weight))} × ${set.reps}`).join(' · ')+' '+unit;
+    const cautious=state.settings.comeback||readiness().state==='caution'||prev.effort==='hard';
+    const goal=cautious?'Today: aim to match those controlled sets, or do less if needed.'
+      :'Today: match last time; add a rep only if it feels comfortable.';
+    return `<div class="last-time"><div class="row"><strong>Last time</strong><span class="tiny muted">${fmtDate(prev.date)}</span></div>
+      <div class="last-values">${esc(summary)}</div><span>${goal}</span></div>`;
+  }
+  function weeklyReport(){
+    const now=startOfDay(new Date()),monday=new Date(now.getFullYear(),now.getMonth(),now.getDate()-(now.getDay()+6)%7);
+    const end=new Date(monday.getFullYear(),monday.getMonth(),monday.getDate()+7);
+    const week=state.sessions.filter(s=>s.finishedAt).filter(s=>{
+      const d=new Date((s.date||'')+'T12:00:00');return d>=monday&&d<end;
+    });
+    const completedSets=week.flatMap(s=>(s.steps||[]).filter(x=>x.type==='strength').flatMap(x=>x.sets||[]).filter(x=>x.completed)).length;
+    const volume=week.reduce((v,s)=>v+totalVolume(s),0);
+    const cardio=week.reduce((v,s)=>v+(s.steps||[]).filter(x=>x.id==='cardio'&&x.done).reduce((n,x)=>n+Number(x.actual?.minutes??x.minutes??0),0),0);
+    let records=0;
+    const before=state.sessions.filter(s=>s.finishedAt).filter(s=>new Date((s.date||'')+'T12:00:00')<monday);
+    const best={};
+    for(const s of before)for(const x of s.steps||[])if(x.type==='strength')for(const set of x.sets||[]){
+      if(set.completed&&Number(set.weight)>0)best[x.id]=Math.max(best[x.id]||0,Number(set.weight));
+    }
+    for(const s of week.slice().sort((a,b)=>(a.finishedAt||0)-(b.finishedAt||0)))for(const x of s.steps||[])if(x.type==='strength')for(const set of x.sets||[]){
+      const kg=Number(set.weight);
+      if(set.completed&&kg>0&&Number(set.reps)>=6&&kg>(best[x.id]||0)){best[x.id]=kg;records++;}
+    }
+    return {sessions:week.length,sets:completedSets,volume,cardio,records};
+  }
+  function chartPoints(id){
+    return strengthHistory(id).map(({session,step})=>{
+      const weights=step.sets.filter(x=>x.completed&&Number(x.weight)>0).map(x=>Number(x.weight));
+      return weights.length?{date:session.date,weight:Math.max(...weights)}:null;
+    }).filter(Boolean).slice(-10);
+  }
+  function weightChart(id){
+    const points=chartPoints(id),unit=EXERCISES[id]?.unit||'kg';
+    if(!points.length)return '<div class="empty"><strong>No strength data yet</strong><span>Log some sets to see your progress.</span></div>';
+    const low=Math.min(...points.map(x=>x.weight)),high=Math.max(...points.map(x=>x.weight));
+    const min=Math.max(0,low-(high-low||5)*.3),max=high+(high-low||5)*.3,span=Math.max(.1,max-min);
+    const pos=points.map((p,i)=>({x:points.length===1?160:28+i*264/(points.length-1),y:112-(p.weight-min)/span*86,...p}));
+    const line=pos.map(p=>p.x.toFixed(1)+','+p.y.toFixed(1)).join(' ');
+    return `<div class="chart-wrap"><svg viewBox="0 0 320 145" role="img" aria-label="${esc(EXERCISES[id].name)} weights: ${esc(points.map(p=>p.weight+' '+unit+' on '+p.date).join('; '))}" preserveAspectRatio="xMidYMid meet">
+      <line x1="18" y1="112" x2="302" y2="112" stroke="#526558" stroke-width="1"/>
+      ${points.length>1?`<polyline points="${line}" fill="none" stroke="#c2f270" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>`:''}
+      ${pos.map(p=>`<circle cx="${p.x}" cy="${p.y}" r="4.5" fill="#c2f270" stroke="#163020" stroke-width="2"/>`).join('')}
+      <text x="18" y="138" fill="#c6d4cb" font-size="10">${fmtDate(points[0].date)}</text>
+      <text x="302" y="138" text-anchor="end" fill="#c6d4cb" font-size="10">${points.length>1?fmtDate(points.at(-1).date):fmtN(points[0].weight)+' '+unit}</text>
+      </svg><div class="row small"><span class="muted">First: ${fmtN(points[0].weight)} ${esc(unit)}</span><strong>Latest: ${fmtN(points.at(-1).weight)} ${esc(unit)}</strong></div>
+      <p class="tiny muted" style="margin:8px 0 0">Best logged weight per session · machines and dumbbells are tracked separately.</p></div>`;
+  }
+  function proteinMarkup(){
+    if(!state.settings.proteinCheck)return '';
+    const checked=state.proteinDays[localDate()]===true;
+    return `<div class="protein-check"><div><strong>Protein with your meals?</strong><p class="tiny muted" style="margin:4px 0 0">Optional consistency check — no need for a post-workout shake.</p></div>
+      <button class="btn ${checked?'primary':'ghost'} smallbtn" data-action="toggle-protein">${checked?'✓ Done':'Mark done'}</button></div>`;
+  }
+
   function trainingXP(){
     const sessions=state.sessions.filter(s=>s?.finishedAt).slice().sort((a,b)=>a.finishedAt-b.finishedAt);
     let xp=0,records=0;const best={};
@@ -750,7 +828,7 @@
       state.planned[id]={...(state.planned[id]||{}),[isWeight?'weight':'reps']:isWeight&&val===''?'':n};
       save();render();toast('Workout target saved');return;
     }
-    if(el.matches('[data-weight]')){const val=el.value.trim();if(val!==''&&(!Number.isFinite(Number(val))||Number(val)<0||Number(val)>1000)){toast('Please enter a valid weight');render();return;}state.weights[el.dataset.weight]=val===''?'':Number(val);save();return;}if(el.matches('#importFile')&&el.files?.length){try{const raw=await el.files[0].text(),obj=JSON.parse(raw);if(obj.app!=='REPS'||!Array.isArray(obj.sessions)||!obj.settings||!obj.weights){toast('Not a valid REPS backup');return;}if(!confirm('Importing will replace all current progress on this device. Continue?'))return;const d=DEFAULT();state={settings:{...d.settings,...obj.settings},weights:{...d.weights,...obj.weights},planned:obj.planned&&typeof obj.planned==='object'?obj.planned:{},planSets:{A:{...(obj.planSets?.A||{})},B:{...(obj.planSets?.B||{})}},checkins:obj.checkins&&typeof obj.checkins==='object'?obj.checkins:{},sessions:obj.sessions,measurements:Array.isArray(obj.measurements)?obj.measurements:[],active:obj.active&&Array.isArray(obj.active.steps)?obj.active:null};save();render();toast('Backup restored');}catch{toast('Could not read this backup file');}}});
+    if(el.matches('[data-weight]')){const val=el.value.trim();if(val!==''&&(!Number.isFinite(Number(val))||Number(val)<0||Number(val)>1000)){toast('Please enter a valid weight');render();return;}state.weights[el.dataset.weight]=val===''?'':Number(val);save();return;}if(el.matches('#importFile')&&el.files?.length){try{const raw=await el.files[0].text(),obj=JSON.parse(raw);if(obj.app!=='REPS'||!Array.isArray(obj.sessions)||!obj.settings||!obj.weights){toast('Not a valid REPS backup');return;}if(!confirm('Importing will replace all current progress on this device. Continue?'))return;const d=DEFAULT();state={settings:{...d.settings,...obj.settings},weights:{...d.weights,...obj.weights},planned:obj.planned&&typeof obj.planned==='object'?obj.planned:{},planSets:{A:{...(obj.planSets?.A||{})},B:{...(obj.planSets?.B||{})}},checkins:obj.checkins&&typeof obj.checkins==='object'?obj.checkins:{},proteinDays:obj.proteinDays&&typeof obj.proteinDays==='object'?obj.proteinDays:{},sessions:obj.sessions,measurements:Array.isArray(obj.measurements)?obj.measurements:[],active:obj.active&&Array.isArray(obj.active.steps)?obj.active:null};save();render();toast('Backup restored');}catch{toast('Could not read this backup file');}}});
   document.addEventListener('input',e=>{const step=stepData();if(state.active&&step?.type==='strength'){if(e.target.id==='weight'){step.draftWeight=e.target.value;save();}if(e.target.id==='reps'){step.draftReps=e.target.value;save();}}});
   window.addEventListener('hashchange',()=>{const v=location.hash.slice(1);if(['today','plan','coach','history','settings'].includes(v)){view=v;render();}});
   if(['today','plan','coach','history','settings'].includes(location.hash.slice(1)))view=location.hash.slice(1);
