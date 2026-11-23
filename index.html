@@ -333,11 +333,28 @@
   function stepData(){return state.active?.steps?.[state.active.stepIndex];}
   function setDoneCount(step){return step.sets.filter(x=>x.completed).length;}
   function currentSet(step){return step.sets.findIndex(x=>!x.completed);}
-  function liveView(){const s=state.active,step=stepData();if(!step)return '<p>Workout data unavailable.</p>';const progress=Math.round(completedCount(s)/s.steps.length*100);
-    return `<div class="row" style="margin-bottom:15px"><div><p class="eyebrow" style="margin-bottom:4px">Workout ${esc(s.variant)} · ${fmtDate(s.date)}</p><h2 style="margin:0">Let's get to work.</h2></div><button class="btn smallbtn ghost" data-action="back-plan" aria-label="Back to My Plan">← Back</button></div><div class="row small muted" style="margin-bottom:8px"><span>${completedCount(s)} of ${s.steps.length} movements</span><strong>${progress}%</strong></div><div class="progress"><div style="width:${progress}%"></div></div>
-    <div class="focuscard" style="margin-top:17px"><div class="row"><div class="focus-icon">${step.type==='tread'?'↗':'✦'}</div><span class="stepindicator">Step ${s.stepIndex+1} / ${s.steps.length}</span></div><h1>${esc(step.title)}</h1><p class="instruction">${esc(step.type==='strength'?EXERCISES[step.id].hint:step.desc)}</p>${step.type==='strength'?strengthMarkup(step):treadMarkup(step)}</div>
-    ${sectionTitle('Workout order')}<div class="timeline">${s.steps.map((x,i)=>`<button class="line ${i===s.stepIndex?'current':''} ${x.done?'done':''}" data-action="jump" data-step="${i}"><span class="index">${x.done?'✓':x.skipped?'–':String(i+1).padStart(2,'0')}</span><span class="name">${esc(x.title)}</span><span class="tag">${x.done?'Done':x.skipped?'Skipped':x.type==='strength'?`${setDoneCount(x)}/${x.targetSets} sets`:x.minutes+' min'}</span></button>`).join('')}</div>
-    <div class="flexwrap" style="margin-top:15px"><button class="btn ghost smallbtn" data-action="prev" ${s.stepIndex===0?'disabled':''}>${icon('back')} Previous</button><button class="btn ghost smallbtn" data-action="skip">Skip this exercise</button><button class="btn danger smallbtn" data-action="end">Finish early</button></div>`;
+  function liveView(){
+    const s=state.active,step=stepData();
+    if(!step)return '<p>Workout data unavailable.</p>';
+    const done=completedCount(s),progress=Math.round(done/s.steps.length*100);
+    const next=s.steps.slice(s.stepIndex+1).find(x=>!x.done&&!x.skipped);
+    return `<div class="workout-header">
+      <div class="row"><div><span class="eyebrow">WORKOUT ${esc(s.variant)} · ${fmtDate(s.date)}</span><h2>Keep it moving.</h2></div><button class="btn smallbtn ghost" data-action="back-plan">← Exit</button></div>
+      <div class="row small muted" style="margin:11px 0 7px"><span>Step ${s.stepIndex+1} of ${s.steps.length}</span><strong>${progress}% complete</strong></div>
+      <div class="progress"><div style="width:${progress}%"></div></div>
+    </div>
+    <section class="focuscard lift-card">
+      <div class="focus-overline"><span class="stepindicator">${step.type==='tread'?'TREADMILL':'STRENGTH'}</span><span class="small muted">${step.type==='strength'?`${setDoneCount(step)} / ${step.targetSets} sets done`:`${step.minutes} min planned`}</span></div>
+      <h1>${esc(step.title)}</h1><p class="instruction">${esc(step.type==='strength'?EXERCISES[step.id].hint:step.desc)}</p>
+      ${step.type==='strength'?strengthMarkup(step):treadMarkup(step)}
+    </section>
+    ${next?`<div class="next-preview"><span class="tiny muted">UP NEXT</span><strong>${esc(next.title)}</strong></div>`:''}
+    <details class="disclosure workout-disclosure"><summary>View all workout steps <span>${done} / ${s.steps.length} done</span></summary>
+      <div class="timeline">${s.steps.map((x,i)=>`<button class="line ${i===s.stepIndex?'current':''} ${x.done?'done':''}" data-action="jump" data-step="${i}"><span class="index">${x.done?'✓':x.skipped?'–':String(i+1).padStart(2,'0')}</span><span class="name">${esc(x.title)}</span><span class="tag">${x.done?'Done':x.skipped?'Skipped':x.type==='strength'?`${setDoneCount(x)}/${x.targetSets} sets`:x.minutes+' min'}</span></button>`).join('')}</div>
+    </details>
+    <details class="disclosure workout-disclosure"><summary>Workout options</summary>
+      <div class="flexwrap" style="padding:12px 2px"><button class="btn ghost smallbtn" data-action="prev" ${s.stepIndex===0?'disabled':''}>Previous step</button><button class="btn ghost smallbtn" data-action="skip">Skip current step</button><button class="btn danger smallbtn" data-action="end">Finish early</button></div>
+    </details>`;
   }
   function effortMarkup(step){
     return `<div class="panel" style="background:#202f24;border-color:#5a704e;margin-top:12px">
@@ -348,39 +365,30 @@
     </div>`;
   }
   function strengthMarkup(step){
-    const setIdx=currentSet(step),finished=setIdx===-1,last=bestWeight(step.id);
-    const activeRest=state.active.rest?.stepId===step.id&&remaining(state.active.rest)>0;
-    const editingIndex=state.active.editingSet?.stepId===step.id?state.active.editingSet.index:-1;
-    const unit=EXERCISES[step.id].unit;
-    const logged=step.sets.map((set,i)=>{
+    const setIdx=currentSet(step),finished=setIdx===-1;
+    const resting=state.active.rest?.stepId===step.id&&remaining(state.active.rest)>0;
+    const edit=state.active.editingSet?.stepId===step.id?state.active.editingSet.index:-1;
+    const unit=EXERCISES[step.id].unit,done=step.sets.filter(x=>x.completed).length;
+    const rows=step.sets.map((set,i)=>{
       if(!set.completed)return '';
-      return `<div class="loggedset">
-        <div class="row">
-          <div><span class="stepindicator">Set ${i+1} · Saved</span><div class="setresult">${esc(fmtN(Number(set.weight)))} ${esc(unit)} <span>×</span> ${esc(set.reps)} reps</div></div>
-          ${editingIndex===i?'':`<button class="btn ghost smallbtn" data-action="edit-set" data-index="${i}">Edit</button>`}
-        </div>
-        ${editingIndex===i?`<div class="stepgrid" style="margin:12px 0"><div class="field"><label for="edit-weight">Weight (${esc(unit)})</label><input id="edit-weight" type="number" min="0" max="1000" step="0.5" inputmode="decimal" value="${esc(set.weight)}"></div><div class="field"><label for="edit-reps">Reps completed</label><input id="edit-reps" type="number" min="1" max="100" step="1" inputmode="numeric" value="${esc(set.reps)}"></div></div><div class="flexwrap"><button class="btn primary smallbtn" data-action="save-edit-set" data-index="${i}">Save changes</button><button class="btn ghost smallbtn" data-action="cancel-edit-set">Cancel</button></div>`:''}
+      return `<div class="loggedset"><div class="row"><div><span class="stepindicator">SET ${i+1}</span><div class="setresult">${esc(fmtN(Number(set.weight)))} ${esc(unit)} <span>×</span> ${esc(set.reps)} reps</div></div>
+        ${edit===i?'':`<button class="btn ghost smallbtn" data-action="edit-set" data-index="${i}">Edit</button>`}</div>
+        ${edit===i?`<div class="stepgrid" style="margin:12px 0"><div class="field"><label for="edit-weight">Weight (${esc(unit)})</label><input id="edit-weight" type="number" min="0" max="1000" step="0.5" inputmode="decimal" value="${esc(set.weight)}"></div><div class="field"><label for="edit-reps">Reps</label><input id="edit-reps" type="number" min="1" max="100" step="1" inputmode="numeric" value="${esc(set.reps)}"></div></div><div class="flexwrap"><button class="btn primary smallbtn" data-action="save-edit-set" data-index="${i}">Save changes</button><button class="btn ghost smallbtn" data-action="cancel-edit-set">Cancel</button></div>`:''}
       </div>`;
     }).join('');
-    return `<div class="row" style="margin:13px 0"><span class="chip">${step.targetSets} sets × ${step.targetReps} target reps</span><span class="small muted">Rest: ${restSeconds(step.id)}s</span></div>
-      <div class="chips" style="margin:9px 0 13px">${step.sets.map((x,i)=>`<span class="setchip ${x.completed?'done':i===setIdx?'current':''}" title="Set ${i+1}">${x.completed?'✓':i+1}</span>`).join('')}</div>
-      ${logged}
-      ${finished?`<div class="panel" style="background:#263e29;border-color:#75975a"><span class="completecheck">✓</span><h3>Exercise complete!</h3><p class="small muted">All sets logged. You can edit a set above if needed.</p>${effortMarkup(step)}<button class="btn primary block" data-action="next">${state.active.stepIndex===state.active.steps.length-1?'Finish workout':'Next exercise'} ${icon('arrow')}</button></div>`:
-      `${activeRest?restMarkup(state.active.rest):''}
-       ${strengthHistory(step.id).length?`<div class="coach-note" style="margin:12px 0">${esc(coachAdvice(step.id).label)}: ${esc(coachAdvice(step.id).text)}</div>`:''}
-       <div class="entrypanel">
-        <div class="row" style="margin-bottom:14px"><strong>Set ${setIdx+1}: enter what you actually did</strong><span class="badge">NEXT SET</span></div>
-        <div class="stepgrid">
-          <div class="field"><label for="weight">Weight (${esc(unit)})</label><input id="weight" type="number" min="0" max="1000" step="0.5" inputmode="decimal" placeholder="kg" value="${esc(step.draftWeight)}"></div>
-          <div class="field"><label for="reps">Reps completed</label><input id="reps" type="number" min="1" max="100" step="1" inputmode="numeric" value="${esc(step.draftReps)}"></div>
-        </div>
-        <p class="small muted" style="margin:10px 0 14px">${last===''?'No previous weight recorded.':`Previously logged: ${esc(last)} ${esc(unit)}.`} Change either field each set. ${step.id==='rdl'?'Start light and ask an instructor to check your hinge technique.':''}</p>
-        <button class="btn primary block big" data-action="logset">${icon('check')} Save set ${setIdx+1} of ${step.targetSets}</button>
-       </div>`}
-      ${step.sets.some(x=>x.completed)?`<button class="btn ghost block smallbtn" style="margin-top:10px" data-action="undo-set">Undo last set</button>`:''}`;
+    const review=done?`<details class="disclosure set-review" ${edit>=0?'open':''}><summary>Logged sets <span>${done} saved · review/edit</span></summary><div class="logged-list">${rows}</div><button class="text-link" style="margin:6px 0 9px" data-action="undo-set">Undo last set</button></details>`:'';
+    const chips=`<div class="set-chips">${step.sets.map((x,i)=>`<span class="setchip ${x.completed?'done':i===setIdx?'current':''}" title="Set ${i+1}">${x.completed?'✓':i+1}</span>`).join('')}</div>`;
+    const heading=`<div class="set-heading"><strong>${finished?'All sets complete':`Set ${setIdx+1} of ${step.targetSets}`}</strong><span class="small muted">${step.targetReps} target reps · ${restSeconds(step.id)}s rest</span></div>`;
+    if(finished){const next=state.active.steps[state.active.stepIndex+1];return `${heading}${chips}<div class="finish-exercise"><span class="completecheck">✓</span><h3>Exercise complete</h3>${effortMarkup(step)}<button class="btn primary big block" data-action="next">${next?'Next: '+esc(next.title):'Finish workout'} ${icon('arrow')}</button></div>${review}`;}
+    if(resting)return `${heading}${chips}${restMarkup(state.active.rest)}<p class="small muted center-note">Set ${setIdx} saved. Your next set is ready when the timer finishes.</p>${review}`;
+    return `${heading}${chips}<div class="entrypanel"><div class="stepgrid"><div class="field"><label for="weight">Weight (${esc(unit)})</label><input id="weight" type="number" min="0" max="1000" step="0.5" inputmode="decimal" value="${esc(step.draftWeight)}"></div><div class="field"><label for="reps">Reps completed</label><input id="reps" type="number" min="1" max="100" step="1" inputmode="numeric" value="${esc(step.draftReps)}"></div></div><button class="btn primary big block save-set-btn" data-action="logset">${icon('check')} Save set ${setIdx+1}</button></div>
+      ${strengthHistory(step.id).length?`<div class="mini-coach-tip"><strong>Coach:</strong> ${esc(coachAdvice(step.id).label)} <button data-nav="coach" class="text-link">See why</button></div>`:''}${review}`;
   }
   function remaining(timer){if(!timer)return 0;return timer.paused?timer.left:Math.max(0,Math.ceil((timer.until-Date.now())/1000));}
-  function restMarkup(r){return `<div class="timerpanel"><div class="stepindicator">Rest between sets</div><div class="count" id="clock-display">${fmtTime(remaining(r))}</div><p class="small muted">Catch your breath. A longer rest is fine if you need it.</p><div class="controlrow"><button class="btn ghost" data-action="toggle-rest">${r.paused?'Resume':'Pause'}</button><button class="btn primary" data-action="skip-rest">Skip rest ${icon('arrow')}</button></div></div>`;}
+  function restMarkup(r){
+    return `<div class="timerpanel rest-focus"><div class="stepindicator">RECOVER · NEXT SET SOON</div><div class="count" id="clock-display" aria-label="Time remaining">${fmtTime(remaining(r))}</div>
+      <div class="controlrow"><button class="btn ghost" data-action="toggle-rest">${r.paused?'Resume timer':'Pause timer'}</button><button class="btn primary" data-action="skip-rest">Ready now →</button></div></div>`;
+  }
   function treadMarkup(step){
     const t=state.active.timer?.stepId===step.id?state.active.timer:null;
     const left=t?remaining(t):step.minutes*60;
