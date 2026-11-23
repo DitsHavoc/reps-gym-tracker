@@ -296,6 +296,14 @@
     ${sectionTitle('Workout order')}<div class="timeline">${s.steps.map((x,i)=>`<button class="line ${i===s.stepIndex?'current':''} ${x.done?'done':''}" data-action="jump" data-step="${i}"><span class="index">${x.done?'✓':x.skipped?'–':String(i+1).padStart(2,'0')}</span><span class="name">${esc(x.title)}</span><span class="tag">${x.done?'Done':x.skipped?'Skipped':x.type==='strength'?`${setDoneCount(x)}/${x.targetSets} sets`:x.minutes+' min'}</span></button>`).join('')}</div>
     <div class="flexwrap" style="margin-top:15px"><button class="btn ghost smallbtn" data-action="prev" ${s.stepIndex===0?'disabled':''}>${icon('back')} Previous</button><button class="btn ghost smallbtn" data-action="skip">Skip this exercise</button><button class="btn danger smallbtn" data-action="end">Finish early</button></div>`;
   }
+  function effortMarkup(step){
+    return `<div class="panel" style="background:#202f24;border-color:#5a704e;margin-top:12px">
+      <div class="stepindicator">REPS COACH · EFFORT</div>
+      <h3 style="margin-top:7px">How did those sets feel?</h3>
+      <p class="small muted" style="margin:0">Optional. Think about how many more good reps you could have managed.</p>
+      <div class="effort-buttons">${[['easy','Easy','5+ left'],['good','Good','2–3 left'],['hard','Hard','0–1 left']].map(([key,label,detail])=>`<button data-action="rate-effort" data-effort="${key}" class="${step.effort===key?'chosen':''}">${label}<br><span class="tiny">${detail}</span></button>`).join('')}</div>
+    </div>`;
+  }
   function strengthMarkup(step){
     const setIdx=currentSet(step),finished=setIdx===-1,last=bestWeight(step.id);
     const activeRest=state.active.rest?.stepId===step.id&&remaining(state.active.rest)>0;
@@ -314,8 +322,9 @@
     return `<div class="row" style="margin:13px 0"><span class="chip">${step.targetSets} sets × ${step.targetReps} target reps</span><span class="small muted">Rest: ${restSeconds(step.id)}s</span></div>
       <div class="chips" style="margin:9px 0 13px">${step.sets.map((x,i)=>`<span class="setchip ${x.completed?'done':i===setIdx?'current':''}" title="Set ${i+1}">${x.completed?'✓':i+1}</span>`).join('')}</div>
       ${logged}
-      ${finished?`<div class="panel" style="background:#263e29;border-color:#75975a"><span class="completecheck">✓</span><h3>Exercise complete!</h3><p class="small muted">All sets logged. You can edit a set above if needed.</p><button class="btn primary block" data-action="next">${state.active.stepIndex===state.active.steps.length-1?'Finish workout':'Next exercise'} ${icon('arrow')}</button></div>`:
+      ${finished?`<div class="panel" style="background:#263e29;border-color:#75975a"><span class="completecheck">✓</span><h3>Exercise complete!</h3><p class="small muted">All sets logged. You can edit a set above if needed.</p>${effortMarkup(step)}<button class="btn primary block" data-action="next">${state.active.stepIndex===state.active.steps.length-1?'Finish workout':'Next exercise'} ${icon('arrow')}</button></div>`:
       `${activeRest?restMarkup(state.active.rest):''}
+       ${strengthHistory(step.id).length?`<div class="coach-note" style="margin:12px 0">${esc(coachAdvice(step.id).label)}: ${esc(coachAdvice(step.id).text)}</div>`:''}
        <div class="entrypanel">
         <div class="row" style="margin-bottom:14px"><strong>Set ${setIdx+1}: enter what you actually did</strong><span class="badge">NEXT SET</span></div>
         <div class="stepgrid">
@@ -329,8 +338,25 @@
   }
   function remaining(timer){if(!timer)return 0;return timer.paused?timer.left:Math.max(0,Math.ceil((timer.until-Date.now())/1000));}
   function restMarkup(r){return `<div class="timerpanel"><div class="stepindicator">Rest between sets</div><div class="count" id="clock-display">${fmtTime(remaining(r))}</div><p class="small muted">Catch your breath. A longer rest is fine if you need it.</p><div class="controlrow"><button class="btn ghost" data-action="toggle-rest">${r.paused?'Resume':'Pause'}</button><button class="btn primary" data-action="skip-rest">Skip rest ${icon('arrow')}</button></div></div>`;}
-  function treadMarkup(step){const t=state.active.timer?.stepId===step.id?state.active.timer:null;const left=t?remaining(t):step.minutes*60;
-    return `<div class="grid2" style="margin:16px 0"><div class="stat"><div class="label">Duration</div><div class="num" style="font-size:25px">${step.minutes} <span style="font-size:12px">min</span></div></div><div class="stat"><div class="label">Incline</div><div class="num" style="font-size:25px">${step.incline}%</div></div></div><div class="timerpanel"><div class="stepindicator">${step.id==='warmup'?'Warm-up walk':'Incline walk'}</div><div class="count" id="clock-display">${fmtTime(left)}</div><div class="controlrow">${!t?`<button class="btn primary block" data-action="start-tread">${icon('play')} Start timer</button>`:`<button class="btn ghost" data-action="toggle-tread">${t.paused?'Resume':'Pause'}</button><button class="btn ghost" data-action="restart-tread">Restart</button>`}</div></div><p class="small muted" style="margin-top:12px">Set your treadmill to a comfortable speed. The app doesn't control the machine.</p><button class="btn primary block big" data-action="done-tread" style="margin-top:14px">${icon('check')} Mark complete & continue</button>`;}
+  function treadMarkup(step){
+    const t=state.active.timer?.stepId===step.id?state.active.timer:null;
+    const left=t?remaining(t):step.minutes*60;
+    const walk=step.id==='cardio';
+    return `<div class="grid2" style="margin:16px 0"><div class="stat"><div class="label">Planned duration</div><div class="num" style="font-size:25px">${step.minutes} <span style="font-size:12px">min</span></div></div><div class="stat"><div class="label">Planned incline</div><div class="num" style="font-size:25px">${step.incline}%</div></div></div>
+      <div class="timerpanel"><div class="stepindicator">${step.id==='warmup'?'Warm-up walk':'Incline walk'}</div><div class="count" id="clock-display">${fmtTime(left)}</div>
+      <div class="controlrow">${!t?`<button class="btn primary block" data-action="start-tread">${icon('play')} Start timer</button>`:`<button class="btn ghost" data-action="toggle-tread">${t.paused?'Resume':'Pause'}</button><button class="btn ghost" data-action="restart-tread">Restart</button>`}</div></div>
+      ${walk?`<div class="panel" style="background:#1c2e23;margin-top:14px">
+        <h3>What did you actually do?</h3><div class="checkin-grid">
+          <div class="field"><label for="walk-minutes">Minutes</label><input id="walk-minutes" type="number" min="1" max="120" step="1" inputmode="numeric" value="${esc(step.actual?.minutes??step.minutes)}"></div>
+          <div class="field"><label for="walk-incline">Incline %</label><input id="walk-incline" type="number" min="0" max="30" step="0.5" inputmode="decimal" value="${esc(step.actual?.incline??step.incline)}"></div>
+          <div class="field"><label for="walk-speed">Speed km/h</label><input id="walk-speed" type="number" min="0.5" max="25" step="0.1" inputmode="decimal" placeholder="Optional" value="${esc(step.actual?.speed??'')}"></div>
+        </div><p class="small muted" style="margin:0">How did the walk feel? (Optional)</p>
+        <div class="effort-buttons">${[['easy','Easy'],['good','Good'],['hard','Hard']].map(([key,label])=>`<button data-action="walk-effort" data-effort="${key}" class="${step.walkEffort===key?'chosen':''}">${label}</button>`).join('')}</div>
+        <p class="tiny muted mb0">Log the actual minutes and incline. The treadmill is not controlled by REPS.</p>
+      </div>`:''}
+      <p class="small muted" style="margin-top:12px">Set a comfortable treadmill speed. The app only provides a timer.</p>
+      <button class="btn primary block big" data-action="done-tread" style="margin-top:14px">${icon('check')} Mark complete & continue</button>`;
+  }
   function beep(){if(!state.settings.sound)return;try{const A=window.AudioContext||window.webkitAudioContext;if(!A)return;const c=new A(),o=c.createOscillator(),g=c.createGain();o.type='sine';o.frequency.value=770;g.gain.setValueAtTime(0.0001,c.currentTime);g.gain.exponentialRampToValueAtTime(.12,c.currentTime+.02);g.gain.exponentialRampToValueAtTime(.0001,c.currentTime+.3);o.connect(g).connect(c.destination);o.start();o.stop(c.currentTime+.31);setTimeout(()=>c.close(),600);}catch{}try{navigator.vibrate?.([100,80,100]);}catch{}}
   function tick(){const active=state.active;if(!active)return;const timer=active.rest||active.timer;if(!timer)return;const el=$('#clock-display');if(el)el.textContent=fmtTime(remaining(timer));if(remaining(timer)===0&&!timer.paused){if(active.rest){active.rest=null;save();beep();render();toast('Rest finished — next set');}else if(active.timer&&!active.timer.notified){active.timer.notified=true;save();beep();toast('Time complete! Mark the walk done');}}}
   function startClock(kind,stepId,secs){const timer={stepId,paused:false,left:secs,until:Date.now()+secs*1000,notified:false};if(kind==='rest')state.active.rest=timer;else state.active.timer=timer;save();render();}
@@ -343,7 +369,7 @@
      ${sectionTitle('Previous workouts')}${arr.length?arr.map(s=>historyItem(s)).join(''):`<div class="empty"><strong>Your first workout is waiting.</strong><span class="small">Finish a session and you'll see weights, reps and sets here.</span></div>`}
      ${sectionTitle('Body measurements')}<div class="panel"><p class="small muted">Optional: log your body weight and waist measurement weekly. Strength can improve even when the scale moves slowly.</p><button class="btn smallbtn ${showMeasureForm?'ghost':'primary'}" data-action="toggle-measure">${showMeasureForm?'Cancel':'Add measurement'}</button>${showMeasureForm?`<div class="stepgrid" style="margin-top:15px"><div class="field"><label for="bodyweight">Weight (kg)</label><input id="bodyweight" type="number" min="20" max="400" step="0.1" placeholder="Optional" inputmode="decimal" /></div><div class="field"><label for="waist">Waist (cm)</label><input id="waist" type="number" min="20" max="250" step="0.5" placeholder="Optional" inputmode="decimal" /></div></div><button class="btn primary block" style="margin-top:10px" data-action="save-measure">Save measurement</button>`:''}
      ${state.measurements.length?`<div class="divider"></div>${state.measurements.slice().reverse().map(x=>`<div class="row small" style="padding:8px 0"><span class="muted">${fmtDate(x.date)}</span><strong>${x.weight?esc(x.weight)+' kg':''}${x.weight&&x.waist?' · ':''}${x.waist?esc(x.waist)+' cm waist':''}</strong></div>`).join('')}`:''}</div>`;}
-  function historyItem(s){const expanded=expandedHistory===s.id;const sets=s.steps.filter(x=>x.type==='strength').reduce((v,x)=>v+x.sets.filter(y=>y.completed).length,0);return `<button class="history-item" data-history="${esc(s.id)}" aria-expanded="${expanded}"><div class="row"><strong>Workout ${esc(s.variant)} ${s.partial?'<span class="tiny muted">(partial)</span>':''}</strong><span class="badge">${sets} sets</span></div><div class="small muted" style="margin-top:7px">${fmtDate(s.date)} · ${Math.max(1,Math.round(((s.finishedAt||s.startedAt)-s.startedAt)/60000))} min · ${fmtN(totalVolume(s))} kg total volume</div></button>${expanded?`<div class="history-details"><table><thead><tr><th>Exercise</th><th>Weight</th><th>Reps</th></tr></thead><tbody>${s.steps.map(x=>x.type==='strength'?x.sets.filter(t=>t.completed).map(t=>`<tr><td>${esc(x.title)}</td><td>${esc(t.weight)} kg</td><td>${esc(t.reps)}</td></tr>`).join(''):`<tr><td>${esc(x.title)}</td><td colspan="2">${x.done?x.minutes+' min':'Not completed'}</td></tr>`).join('')}</tbody></table><button class="btn danger smallbtn" style="margin-top:12px" data-action="delete-history" data-id="${esc(s.id)}">Delete this workout</button></div>`:''}`;}
+  function historyItem(s){const expanded=expandedHistory===s.id;const sets=s.steps.filter(x=>x.type==='strength').reduce((v,x)=>v+x.sets.filter(y=>y.completed).length,0);return `<button class="history-item" data-history="${esc(s.id)}" aria-expanded="${expanded}"><div class="row"><strong>Workout ${esc(s.variant)} ${s.partial?'<span class="tiny muted">(partial)</span>':''}</strong><span class="badge">${sets} sets</span></div><div class="small muted" style="margin-top:7px">${fmtDate(s.date)} · ${Math.max(1,Math.round(((s.finishedAt||s.startedAt)-s.startedAt)/60000))} min · ${fmtN(totalVolume(s))} kg total volume</div></button>${expanded?`<div class="history-details"><table><thead><tr><th>Exercise</th><th>Weight</th><th>Reps</th></tr></thead><tbody>${s.steps.map(x=>x.type==='strength'?x.sets.filter(t=>t.completed).map(t=>`<tr><td>${esc(x.title)}</td><td>${esc(t.weight)} kg</td><td>${esc(t.reps)}</td></tr>`).join(''):`<tr><td>${esc(x.title)}</td><td colspan="2">${x.done?(x.actual?.minutes??x.minutes)+' min'+(x.id==='cardio'?', '+(x.actual?.incline??x.incline)+'% incline'+(x.actual?.speed?' @ '+x.actual.speed+' km/h':''):''):'Not completed'}</td></tr>`).join('')}</tbody></table><button class="btn danger smallbtn" style="margin-top:12px" data-action="delete-history" data-id="${esc(s.id)}">Delete this workout</button></div>`:''}`;}
   function settingsView(){return `<p class="eyebrow">Make it yours</p><h1>Settings.</h1><p class="small muted">Your timer, weights and training phase. Changes are saved automatically.</p><div class="panel"><h3>Training</h3>
     ${settingSwitch('Comeback phase','Use 2 sets for big exercises unless you have set a custom number in Workout A or B.','comeback',state.settings.comeback)}
     ${settingNumber('Rest after big exercises','bigRest',state.settings.bigRest,'seconds',30,300,15)}
@@ -375,6 +401,11 @@
       view='plan';render();scrollTop();
       if(s)toast('Workout saved — return to Today to resume');
       return;
+    }
+    if(action==='rate-effort'&&s&&step?.type==='strength'){
+      const effort=el.dataset.effort;
+      if(!['easy','good','hard'].includes(effort)||!fullStrength(step))return;
+      step.effort=effort;save();render();toast('Effort recorded');return;
     }
     if(action==='save-checkin'){
       const energy=Number($('#check-energy')?.value),soreness=Number($('#check-soreness')?.value),sleep=Number($('#check-sleep')?.value);
@@ -415,7 +446,24 @@
     if(action==='start-tread'&&s&&step?.type==='tread')return startClock('timer',step.id,step.minutes*60);
     if(action==='toggle-tread'&&s)return toggleClock('timer');
     if(action==='restart-tread'&&s&&step?.type==='tread')return startClock('timer',step.id,step.minutes*60);
-    if(action==='done-tread'&&s&&step?.type==='tread'){step.done=true;s.timer=null;save();return getStepAfter();}
+    if(action==='walk-effort'&&s&&step?.id==='cardio'){
+      const effort=el.dataset.effort;
+      if(!['easy','good','hard'].includes(effort))return;
+      const minutes=$('#walk-minutes')?.value,incline=$('#walk-incline')?.value,speed=$('#walk-speed')?.value;
+      if(minutes!==undefined&&incline!==undefined)step.actual={minutes,incline,speed};
+      step.walkEffort=effort;save();render();return;
+    }
+    if(action==='done-tread'&&s&&step?.type==='tread'){
+      if(step.id==='cardio'){
+        const minuteText=$('#walk-minutes')?.value.trim(),inclineText=$('#walk-incline')?.value.trim(),speedText=$('#walk-speed')?.value.trim();
+        const minutes=Number(minuteText),incline=Number(inclineText),speed=speedText===''?null:Number(speedText);
+        if(!minuteText||!Number.isInteger(minutes)||minutes<1||minutes>120){toast('Enter 1–120 walking minutes');return;}
+        if(!inclineText||!Number.isFinite(incline)||incline<0||incline>30){toast('Enter a valid incline from 0–30%');return;}
+        if(speed!==null&&(!Number.isFinite(speed)||speed<0.5||speed>25)){toast('Check the treadmill speed');return;}
+        step.actual={minutes,incline,speed,effort:step.walkEffort||null};
+      }
+      step.done=true;s.timer=null;save();return getStepAfter();
+    }
     if(action==='prev'&&s&&s.stepIndex>0){s.stepIndex--;s.rest=null;s.timer=null;save();render();scrollTop();return;}
     if(action==='skip'&&s){if(!confirm(`Skip ${step.title}? You can return to it from the workout list.`))return;step.skipped=true;s.rest=null;s.timer=null;return getStepAfter();}
     if(action==='jump'&&s){s.stepIndex=Number(el.dataset.step);s.rest=null;s.timer=null;save();render();scrollTop();return;}
