@@ -196,6 +196,21 @@
     .set-stepper strong{font-size:17px;min-width:27px;text-align:center;color:#f2f8ef}
     .active-three-all{margin:12px 12px 2px;width:calc(100% - 24px);font-size:13px;min-height:46px;border-color:#59775a}
 
+
+    .last-time{background:#1b3023;border:1px solid #3c6341;border-radius:13px;padding:12px 13px;margin:4px 0 16px}
+    .last-time strong{font-size:12px;color:#e5f4e4}.last-time span{display:block;font-size:11px;color:#b5c8b8;line-height:1.5;margin-top:4px}
+    .last-time .row span{margin-top:0}.last-values{font-size:16px;font-weight:820;color:#d9f8b5;margin:7px 0 3px}
+    .protein-check{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:12px 0;padding:14px;background:#202c24;border:1px solid #405546;border-radius:13px}
+    .protein-check strong{font-size:13px}.protein-check .btn{flex-shrink:0;min-width:90px}
+    .weekly-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}
+    .weekly-grid>div{background:#1d2a22;border:1px solid #3a4c3d;border-radius:13px;padding:15px}
+    .weekly-grid strong{font-size:24px;font-weight:860;letter-spacing:-.5px;display:block;color:#f2f9ef}
+    .weekly-grid span{font-size:12px;color:#b5c5b8;display:block;margin-top:3px}
+    .weekly-pbs{margin-top:12px;font-size:12px;color:#cce4c5;background:#253b29;border-radius:11px;padding:10px 13px}
+    .chart-wrap{width:100%;min-width:0}
+    .chart-wrap svg{display:block;width:100%;height:auto;max-height:200px;background:#17241b;border-radius:12px}
+    .chart-wrap .row{margin-top:11px}
+
     @media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important;transition:none!important}}
   </style>
 </head>
@@ -502,6 +517,7 @@
         <div><span class="small muted">This week</span><strong>${count} <small>/ 3 workouts</small></strong></div>
         <div><span class="small muted">Training level</span><strong>${xp.level} <small>· ${xp.xp} XP</small></strong></div>
       </div>
+      ${proteinMarkup()}
       <button class="coach-preview" data-nav="coach">
         <span class="coach-preview-icon">↗</span><span class="coach-preview-copy"><strong>${highlight?esc(highlight.label):'Start building momentum'}</strong><small>${highlight?esc(highlight.name)+' · '+esc(highlight.text):'Your Coach will learn from completed workouts.'}</small></span><span aria-hidden="true">›</span>
       </button>
@@ -636,7 +652,7 @@
       </div>`;
     if(finished){const next=state.active.steps[state.active.stepIndex+1];return `${heading}${chips}<div class="finish-exercise"><span class="completecheck">✓</span><h3>Exercise complete</h3>${effortMarkup(step)}<button class="btn primary big block" data-action="next">${next?'Next: '+esc(next.title):'Finish workout'} ${icon('arrow')}</button></div>${review}`;}
     if(resting)return `${heading}${chips}${restMarkup(state.active.rest)}<p class="small muted center-note">Set ${setIdx} saved. Your next set is ready when the timer finishes.</p>${review}`;
-    return `${heading}${chips}<div class="entrypanel"><div class="stepgrid"><div class="field"><label for="weight">Weight (${esc(unit)})</label><input id="weight" type="number" min="0" max="1000" step="0.5" inputmode="decimal" value="${esc(step.draftWeight)}"></div><div class="field"><label for="reps">Reps completed</label><input id="reps" type="number" min="1" max="100" step="1" inputmode="numeric" value="${esc(step.draftReps)}"></div></div><button class="btn primary big block save-set-btn" data-action="logset">${icon('check')} Save set ${setIdx+1}</button></div>
+    return `${heading}${chips}${lastTimeMarkup(step.id)}<div class="entrypanel"><div class="stepgrid"><div class="field"><label for="weight">Weight (${esc(unit)})</label><input id="weight" type="number" min="0" max="1000" step="0.5" inputmode="decimal" value="${esc(step.draftWeight)}"></div><div class="field"><label for="reps">Reps completed</label><input id="reps" type="number" min="1" max="100" step="1" inputmode="numeric" value="${esc(step.draftReps)}"></div></div><button class="btn primary big block save-set-btn" data-action="logset">${icon('check')} Save set ${setIdx+1}</button></div>
       ${strengthHistory(step.id).length?`<div class="mini-coach-tip"><strong>Coach:</strong> ${esc(coachAdvice(step.id).label)} <button data-nav="coach" class="text-link">See why</button></div>`:''}${review}`;
   }
   function remaining(timer){if(!timer)return 0;return timer.paused?timer.left:Math.max(0,Math.ceil((timer.until-Date.now())/1000));}
@@ -678,7 +694,18 @@
     s.finishedAt=Date.now();s.partial=s.steps.some(x=>!x.done);state.sessions.push(s);state.active=null;save();view='history';expandedHistory=null;justFinishedId=s.id;render();scrollTop();toast('Workout saved — nice work!');}
   function scrollTop(){window.scrollTo({top:0,behavior:'smooth'});}
   function historyView(){const arr=state.sessions.slice().sort((a,b)=>(b.finishedAt||0)-(a.finishedAt||0));const allSets=arr.reduce((n,s)=>n+s.steps.filter(x=>x.type==='strength').reduce((v,x)=>v+x.sets.filter(y=>y.completed).length,0),0);return `<p class="eyebrow">YOUR PROGRESS</p><h1>History.</h1>${justFinishedId&&arr.some(x=>x.id===justFinishedId)?`<div class="finished-banner"><div class="row"><span class="stepindicator">WORKOUT SAVED</span><span class="completecheck">✓</span></div><h2>Nice work. Another one done.</h2><p class="small muted">Your results are saved and REPS Coach has updated.</p><button class="btn primary block" data-nav="coach">View your progress ${icon('arrow')}</button></div>`:''}<div class="grid2"><div class="stat"><div class="label">Completed sessions</div><div class="num">${arr.length}</div></div><div class="stat"><div class="label">Sets logged</div><div class="num">${allSets}</div></div></div>
-     ${sectionTitle('Previous workouts')}${arr.length?arr.map(s=>historyItem(s)).join(''):`<div class="empty"><strong>Your first workout is waiting.</strong><span class="small">Finish a session and you'll see weights, reps and sets here.</span></div>`}
+     ${sectionTitle('This week')}
+      <div class="weekly-grid">
+        <div><strong>${weeklyReport().sessions}</strong><span>Workouts</span></div><div><strong>${weeklyReport().sets}</strong><span>Sets</span></div>
+        <div><strong>${fmtN(weeklyReport().volume)}</strong><span>kg lifted*</span></div>
+        <div><strong>${weeklyReport().cardio}</strong><span>Cardio mins</span></div>
+      </div><p class="tiny muted" style="margin:7px 0">*Training volume counts dumbbells per hand ×2; it's not a measure of calories burned.</p>
+      <div class="weekly-pbs">${weeklyReport().records?weeklyReport().records+' new weight milestones this week':'Keep logging to build your personal-best history.'}</div>
+      ${sectionTitle('Strength progress')}
+      <div class="panel"><div class="field" style="margin-bottom:14px"><label for="progress-exercise">Choose exercise</label>
+        <select id="progress-exercise">${Object.entries(EXERCISES).map(([id,x])=>`<option value="${id}" ${chartExercise===id?'selected':''}>${esc(x.name)}</option>`).join('')}</select>
+      </div>${weightChart(chartExercise)}</div>
+      ${sectionTitle('Previous workouts')}${arr.length?arr.map(s=>historyItem(s)).join(''):`<div class="empty"><strong>Your first workout is waiting.</strong><span class="small">Finish a session and you'll see weights, reps and sets here.</span></div>`}
      <details class="disclosure" ${showMeasureForm?'open':''}><summary>Body measurements <span>${state.measurements.length} logged</span></summary><div class="panel"><p class="small muted">Optional: log your body weight and waist measurement weekly. Strength can improve even when the scale moves slowly.</p><button class="btn smallbtn ${showMeasureForm?'ghost':'primary'}" data-action="toggle-measure">${showMeasureForm?'Cancel':'Add measurement'}</button>${showMeasureForm?`<div class="stepgrid" style="margin-top:15px"><div class="field"><label for="bodyweight">Weight (kg)</label><input id="bodyweight" type="number" min="20" max="400" step="0.1" placeholder="Optional" inputmode="decimal" /></div><div class="field"><label for="waist">Waist (cm)</label><input id="waist" type="number" min="20" max="250" step="0.5" placeholder="Optional" inputmode="decimal" /></div></div><button class="btn primary block" style="margin-top:10px" data-action="save-measure">Save measurement</button>`:''}
      ${state.measurements.length?`<div class="divider"></div>${state.measurements.slice().reverse().map(x=>`<div class="row small" style="padding:8px 0"><span class="muted">${fmtDate(x.date)}</span><strong>${x.weight?esc(x.weight)+' kg':''}${x.weight&&x.waist?' · ':''}${x.waist?esc(x.waist)+' cm waist':''}</strong></div>`).join('')}`:''}</div></details>`;}
   function historyItem(s){const expanded=expandedHistory===s.id;const sets=s.steps.filter(x=>x.type==='strength').reduce((v,x)=>v+x.sets.filter(y=>y.completed).length,0);return `<button class="history-item" data-history="${esc(s.id)}" aria-expanded="${expanded}"><div class="row"><strong>Workout ${esc(s.variant)} ${s.partial?'<span class="tiny muted">(partial)</span>':''}</strong><span class="badge">${sets} sets</span></div><div class="small muted" style="margin-top:7px">${fmtDate(s.date)} · ${Math.max(1,Math.round(((s.finishedAt||s.startedAt)-s.startedAt)/60000))} min · ${fmtN(totalVolume(s))} kg total volume</div></button>${expanded?`<div class="history-details"><table><thead><tr><th>Exercise</th><th>Weight</th><th>Reps</th></tr></thead><tbody>${s.steps.map(x=>x.type==='strength'?x.sets.filter(t=>t.completed).map(t=>`<tr><td>${esc(x.title)}</td><td>${esc(t.weight)} kg</td><td>${esc(t.reps)}</td></tr>`).join(''):`<tr><td>${esc(x.title)}</td><td colspan="2">${x.done?(x.actual?.minutes??x.minutes)+' min'+(x.id==='cardio'?', '+(x.actual?.incline??x.incline)+'% incline'+(x.actual?.speed?' @ '+x.actual.speed+' km/h':''):''):'Not completed'}</td></tr>`).join('')}</tbody></table><button class="btn danger smallbtn" style="margin-top:12px" data-action="delete-history" data-id="${esc(s.id)}">Delete this workout</button></div>`:''}`;}
@@ -689,9 +716,10 @@
     ${settingNumber('Warm-up treadmill','warmup',state.settings.warmup,'minutes',3,20,1)}
     ${settingNumber('Cardio treadmill','cardio',state.settings.cardio,'minutes',5,45,1)}
     ${settingNumber('Cardio incline','incline',state.settings.incline,'%',0,15,.5)}
-    ${settingSwitch('Timer sound and vibration','Hear / feel when a rest finishes (where supported).','sound',state.settings.sound)}</div>
+    ${settingSwitch('Timer sound and vibration','Hear / feel when a rest finishes (where supported).','sound',state.settings.sound)}
+    ${settingSwitch('Optional protein check-in','Show one gentle daily protein tick on Today. No timed alerts or supplement reminders.','proteinCheck',!!state.settings.proteinCheck)}</div>
     <details class="disclosure"><summary>Default starting weights</summary><div class="panel"><p class="small muted">Your last logged weight is suggested first. These are editable starting values, <strong>not targets you must reach</strong>. Dumbbell values are per hand.</p>${Object.entries(EXERCISES).map(([id,x])=>`<div class="weightrow"><div class="small"><strong>${esc(x.name)}</strong><div class="tiny muted">${x.unit}</div></div><input aria-label="Starting weight for ${esc(x.name)}" data-weight="${id}" type="number" min="0" max="1000" step="0.5" inputmode="decimal" placeholder="—" value="${esc(state.weights[id])}" /></div>`).join('')}</div></details>
-    ${sectionTitle('Back up your progress')}<div class="panel"><p class="small muted">Data stays on this browser/device — there's no account or automatic cross-device sync. Export a backup before clearing browser data or switching phones.</p><div class="flexwrap"><button class="btn primary" data-action="export">${icon('download')} Export backup</button><label class="btn ghost" for="importFile" style="cursor:pointer">Import backup</label><input id="importFile" type="file" accept=".json,application/json" hidden /></div></div>
+    ${sectionTitle('Back up your progress')}<div class="panel"><p class="small muted">Your data is stored on this device, not automatically in the cloud. Download a backup or share one to Google Drive from your phone. Save a new backup occasionally.</p><div class="flexwrap"><button class="btn primary" data-action="export">${icon('download')} Download backup</button><button class="btn ghost" data-action="share-backup">Share / save to Drive</button><label class="btn ghost" for="importFile" style="cursor:pointer">Import backup</label><input id="importFile" type="file" accept=".json,application/json" hidden /></div></div>
     <div class="panel"><h3>About your plan</h3><p class="small muted mb0">Monday, Wednesday and Friday alternate A/B workouts weekly. The app remembers where you were if you leave mid-session. Your treadmill is not controlled by this app; timers are guidance only.</p></div>`;}
   function settingSwitch(label,desc,key,v){return `<div class="setting-row row"><div><strong class="small">${label}</strong><p class="tiny muted" style="margin:4px 16px 0 0">${desc}</p></div><input type="checkbox" class="toggle" role="switch" aria-label="${label}" data-setting="${key}" ${v?'checked':''}></div>`;}
   function settingNumber(label,key,value,unit,min,max,step){return `<div class="setting-row row"><div><strong class="small">${label}</strong><div class="tiny muted">${unit}</div></div><div class="field"><input type="number" aria-label="${label}" data-setting="${key}" value="${value}" min="${min}" max="${max}" step="${step}" inputmode="decimal"></div></div>`;}
@@ -739,6 +767,12 @@
       const effort=el.dataset.effort;
       if(!['easy','good','hard'].includes(effort)||!fullStrength(step))return;
       step.effort=effort;save();render();toast('Effort recorded');return;
+    }
+    if(action==='toggle-protein'){
+      if(!state.settings.proteinCheck)return;
+      const date=localDate();
+      state.proteinDays[date]=state.proteinDays[date]!==true;
+      save();render();toast(state.proteinDays[date]?'Protein check-in done':'Protein check-in reset');return;
     }
     if(action==='save-checkin'){
       const energy=Number($('#check-energy')?.value),soreness=Number($('#check-soreness')?.value),sleep=Number($('#check-sleep')?.value);
@@ -805,10 +839,25 @@
     if(action==='toggle-measure'){showMeasureForm=!showMeasureForm;render();return;}
     if(action==='save-measure'){const a=$('#bodyweight').value,b=$('#waist').value;if(!a&&!b){toast('Enter a weight or waist measurement');return;}if((a&&(Number(a)<20||Number(a)>400))||(b&&(Number(b)<20||Number(b)>250))){toast('Please check the values');return;}state.measurements.push({date:localDate(),weight:a?Number(a):null,waist:b?Number(b):null});save();showMeasureForm=false;render();toast('Measurement saved');return;}
     if(action==='delete-history'){if(!confirm('Delete this workout permanently?'))return;state.sessions=state.sessions.filter(x=>x.id!==el.dataset.id);expandedHistory=null;save();render();return;}
-    if(action==='export'){const blob=new Blob([JSON.stringify({app:'REPS',version:1,exportedAt:new Date().toISOString(),...state},null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=`reps-backup-${localDate()}.json`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);toast('Backup downloaded');return;}
+    if(action==='export'||action==='share-backup'){
+      const data=JSON.stringify({app:'REPS',version:2,exportedAt:new Date().toISOString(),...state},null,2);
+      const filename=`reps-backup-${localDate()}.json`;
+      if(action==='share-backup'&&navigator.share&&typeof File!=='undefined'){
+        const file=new File([data],filename,{type:'application/json'});
+        if(!navigator.canShare||navigator.canShare({files:[file]})){
+          navigator.share({files:[file],title:'REPS workout backup'}).catch(()=>toast('Sharing cancelled — no data changed'));
+          return;
+        }
+      }
+      const blob=new Blob([data],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');
+      a.href=url;a.download=filename;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+      toast(action==='share-backup'?'Downloaded backup — you can upload it to Drive':'Backup downloaded');return;
+    }
   }
   document.addEventListener('click',e=>{const n=e.target.closest('[data-nav]');if(n){e.preventDefault();if(view==='today'&&state.active&&n.dataset.nav!=='today'){for(const kind of ['rest','timer']){const t=state.active[kind];if(t&&!t.paused){t.left=remaining(t);t.paused=true;}}save();}view=n.dataset.nav;if(view!=='history')justFinishedId=null;render();scrollTop();return;}const p=e.target.closest('[data-plan]');if(p){planTab=p.dataset.plan;render();return;}const h=e.target.closest('[data-history]');if(h){expandedHistory=expandedHistory===h.dataset.history?null:h.dataset.history;render();return;}const a=e.target.closest('[data-action]');if(a){handleAction(a.dataset.action,a);return;}});
-  document.addEventListener('change',async e=>{const el=e.target;if(el.matches('[data-setting]')){const key=el.dataset.setting;const isBool=el.type==='checkbox';let value=isBool?el.checked:Number(el.value);if(!isBool){const min=Number(el.min),max=Number(el.max);if(!Number.isFinite(value))value=state.settings[key];value=Math.min(max,Math.max(min,value));}state.settings[key]=value;if(key==='comeback'&&!value)syncActiveFromComeback();save();render();toast('Settings saved');return;}if(el.matches('[data-plan-sets]')){
+  document.addEventListener('change',async e=>{const el=e.target;if(el.matches('#progress-exercise')){
+    if(EXERCISES[el.value]){chartExercise=el.value;render();}return;
+  }if(el.matches('[data-setting]')){const key=el.dataset.setting;const isBool=el.type==='checkbox';let value=isBool?el.checked:Number(el.value);if(!isBool){const min=Number(el.min),max=Number(el.max);if(!Number.isFinite(value))value=state.settings[key];value=Math.min(max,Math.max(min,value));}state.settings[key]=value;if(key==='comeback'&&!value)syncActiveFromComeback();save();render();toast('Settings saved');return;}if(el.matches('[data-plan-sets]')){
       const id=el.dataset.planSets,variant=el.dataset.variant;
       const raw=el.value.trim(),n=Number(raw);
       if(!PLANS[variant]?.includes(id)||raw===''||!Number.isInteger(n)||n<1||n>6){
