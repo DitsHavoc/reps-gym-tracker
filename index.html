@@ -188,6 +188,14 @@
     .tread-complete .ui-icon{width:19px;height:19px;flex-basis:19px}
     @media(max-width:370px){.tread-button,.tread-complete{font-size:14px;padding-left:10px;padding-right:10px}}
 
+
+    .active-set-controls{display:flex;justify-content:space-between;align-items:center;gap:12px;margin:4px 0 15px;font-size:13px;color:#c7d5ca}
+    .set-stepper{display:flex;align-items:center;gap:3px;background:#15241a;border:1px solid #5b7357;border-radius:11px;padding:3px}
+    .set-stepper button{display:grid;place-items:center;width:38px;height:38px;background:#2b4030;color:var(--accent);border:0;border-radius:8px;font-size:24px;line-height:1;font-weight:650}
+    .set-stepper button:disabled{opacity:.3;cursor:not-allowed}
+    .set-stepper strong{font-size:17px;min-width:27px;text-align:center;color:#f2f8ef}
+    .active-three-all{margin:12px 12px 2px;width:calc(100% - 24px);font-size:13px;min-height:46px;border-color:#59775a}
+
     @media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important;transition:none!important}}
   </style>
 </head>
@@ -456,7 +464,7 @@
       ${planEditorOpen?`<div id="plan-editor-panel">${targetsMarkup(planTab)}</div>`:''}
       <details class="disclosure"><summary>Exercise order <span>${PLANS[planTab].length+2} steps</span></summary>${planList(planTab,true)}</details>
       <details class="disclosure"><summary>Weekly schedule</summary><div class="panel"><div class="stack">${days.map(x=>`<div class="weekday ${localDate(x.date)===localDate()?'today':''}"><div class="day">${x.date.toLocaleDateString('en-GB',{weekday:'short'})}</div><div class="${x.variant?'work':'off'}">${x.variant?'Workout '+x.variant:'Rest / walking'}</div></div>`).join('')}</div></div></details>
-      <p class="footertext">Changes to sets and reps apply to your next workout. A workout already in progress stays as it was.</p>`;
+      <p class="footertext">Changes here apply to future workouts. During a workout, use the +/− controls on the exercise to adjust its sets immediately.</p>`;
   }
   function newSession(variant){const steps=[{type:'tread',id:'warmup',title:'Treadmill warm-up',minutes:Number(state.settings.warmup),incline:0,desc:'Easy walking pace, 0–1% incline to warm your body up.',done:false,skipped:false}];
     for(const id of PLANS[variant]){const x=EXERCISES[id],count=exerciseSets(id,variant),weight=plannedWeight(id),reps=targetReps(id);steps.push({type:'strength',id,title:x.name,targetReps:reps,targetSets:count,sets:Array.from({length:count},()=>({weight:'',reps,completed:false})),draftWeight:weight,draftReps:reps,done:false,skipped:false});}
@@ -466,6 +474,33 @@
   function stepData(){return state.active?.steps?.[state.active.stepIndex];}
   function setDoneCount(step){return step.sets.filter(x=>x.completed).length;}
   function currentSet(step){return step.sets.findIndex(x=>!x.completed);}
+  function resizeStrengthSets(step,count){
+    if(!step||step.type!=='strength'||!Number.isInteger(count)||count<1||count>6)return false;
+    const current=Array.isArray(step.sets)?step.sets.length:0;
+    if(current===0)return false;
+    const completed=step.sets.filter(x=>x.completed).length;
+    if(count<completed)return false;
+    // Preserve all logged sets. Only remove uncompleted entries from the end.
+    if(count<current&&step.sets.slice(count).some(x=>x.completed))return false;
+    while(step.sets.length<count)step.sets.push({weight:'',reps:step.targetReps,completed:false});
+    if(count<current)step.sets.length=count;
+    step.targetSets=count;
+    step.done=step.sets.every(x=>x.completed);
+    return true;
+  }
+  function syncActiveFromComeback(){
+    const s=state.active;
+    if(!s||state.settings.comeback)return false;
+    let changed=false;
+    for(const step of s.steps){
+      if(step.type!=='strength'||step.done||step.manualSets)continue;
+      if(EXERCISES[step.id]?.base<3||state.planSets?.[s.variant]?.[step.id]!==undefined)continue;
+      // Reconcile older, still-active sessions started with Comeback mode enabled.
+      if(step.targetSets===2&&step.sets.length===2)changed=resizeStrengthSets(step,3)||changed;
+    }
+    return changed;
+  }
+
   function liveView(){
     const s=state.active,step=stepData();
     if(!step)return '<p>Workout data unavailable.</p>';
@@ -486,6 +521,7 @@
       <div class="timeline">${s.steps.map((x,i)=>`<button class="line ${i===s.stepIndex?'current':''} ${x.done?'done':''}" data-action="jump" data-step="${i}"><span class="index">${x.done?'✓':x.skipped?'–':String(i+1).padStart(2,'0')}</span><span class="name">${esc(x.title)}</span><span class="tag">${x.done?'Done':x.skipped?'Skipped':x.type==='strength'?`${setDoneCount(x)}/${x.targetSets} sets`:x.minutes+' min'}</span></button>`).join('')}</div>
     </details>
     <details class="disclosure workout-disclosure"><summary>Workout options</summary>
+      <button class="btn ghost block active-three-all" data-action="make-active-three">Use at least 3 sets for this workout</button>
       <div class="flexwrap" style="padding:12px 2px"><button class="btn ghost smallbtn" data-action="prev" ${s.stepIndex===0?'disabled':''}>Previous step</button><button class="btn ghost smallbtn" data-action="skip">Skip current step</button><button class="btn danger smallbtn" data-action="end">Finish early</button></div>
     </details>`;
   }
@@ -511,7 +547,15 @@
     }).join('');
     const review=done?`<details class="disclosure set-review" ${edit>=0?'open':''}><summary>Logged sets <span>${done} saved · review/edit</span></summary><div class="logged-list">${rows}</div><button class="text-link" style="margin:6px 0 9px" data-action="undo-set">Undo last set</button></details>`:'';
     const chips=`<div class="set-chips">${step.sets.map((x,i)=>`<span class="setchip ${x.completed?'done':i===setIdx?'current':''}" title="Set ${i+1}">${x.completed?'✓':i+1}</span>`).join('')}</div>`;
-    const heading=`<div class="set-heading"><strong>${finished?'All sets complete':`Set ${setIdx+1} of ${step.targetSets}`}</strong><span class="small muted">${step.targetReps} target reps · ${restSeconds(step.id)}s rest</span></div>`;
+    const heading=`<div class="set-heading"><strong>${finished?'All sets complete':`Set ${setIdx+1} of ${step.targetSets}`}</strong><span class="small muted">${step.targetReps} target reps · ${restSeconds(step.id)}s rest</span></div>
+      <div class="active-set-controls" role="group" aria-label="Change number of sets for this exercise">
+        <span>Sets for this exercise</span>
+        <div class="set-stepper">
+          <button type="button" data-action="decrease-active-sets" aria-label="Remove a set" ${step.targetSets<=Math.max(1,done)||step.sets.at(-1)?.completed?'disabled':''}>−</button>
+          <strong>${step.targetSets}</strong>
+          <button type="button" data-action="increase-active-sets" aria-label="Add a set" ${step.targetSets>=6?'disabled':''}>+</button>
+        </div>
+      </div>`;
     if(finished){const next=state.active.steps[state.active.stepIndex+1];return `${heading}${chips}<div class="finish-exercise"><span class="completecheck">✓</span><h3>Exercise complete</h3>${effortMarkup(step)}<button class="btn primary big block" data-action="next">${next?'Next: '+esc(next.title):'Finish workout'} ${icon('arrow')}</button></div>${review}`;}
     if(resting)return `${heading}${chips}${restMarkup(state.active.rest)}<p class="small muted center-note">Set ${setIdx} saved. Your next set is ready when the timer finishes.</p>${review}`;
     return `${heading}${chips}<div class="entrypanel"><div class="stepgrid"><div class="field"><label for="weight">Weight (${esc(unit)})</label><input id="weight" type="number" min="0" max="1000" step="0.5" inputmode="decimal" value="${esc(step.draftWeight)}"></div><div class="field"><label for="reps">Reps completed</label><input id="reps" type="number" min="1" max="100" step="1" inputmode="numeric" value="${esc(step.draftReps)}"></div></div><button class="btn primary big block save-set-btn" data-action="logset">${icon('check')} Save set ${setIdx+1}</button></div>
@@ -595,6 +639,24 @@
       if(s)toast('Workout saved — return to Today to resume');
       return;
     }
+    if((action==='increase-active-sets'||action==='decrease-active-sets')&&s&&step?.type==='strength'){
+      const count=step.targetSets+(action==='increase-active-sets'?1:-1);
+      if(!resizeStrengthSets(step,count)){toast('Cannot remove a completed set or exceed 6 sets');return;}
+      step.manualSets=true;
+      state.planSets[s.variant]={...(state.planSets[s.variant]||{}),[step.id]:count};
+      save();render();toast(count+' sets saved for Workout '+s.variant);return;
+    }
+    if(action==='make-active-three'&&s){
+      let adjusted=0;
+      for(const x of s.steps){
+        if(x.type!=='strength'||x.targetSets>=3)continue;
+        if(resizeStrengthSets(x,3)){
+          adjusted++;x.manualSets=true;
+          state.planSets[s.variant]={...(state.planSets[s.variant]||{}),[x.id]:3};
+        }
+      }
+      save();render();toast(adjusted?adjusted+' exercises updated to 3 sets':'All exercises already have at least 3 sets');return;
+    }
     if(action==='rate-effort'&&s&&step?.type==='strength'){
       const effort=el.dataset.effort;
       if(!['easy','good','hard'].includes(effort)||!fullStrength(step))return;
@@ -668,7 +730,7 @@
     if(action==='export'){const blob=new Blob([JSON.stringify({app:'REPS',version:1,exportedAt:new Date().toISOString(),...state},null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=`reps-backup-${localDate()}.json`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);toast('Backup downloaded');return;}
   }
   document.addEventListener('click',e=>{const n=e.target.closest('[data-nav]');if(n){e.preventDefault();if(view==='today'&&state.active&&n.dataset.nav!=='today'){for(const kind of ['rest','timer']){const t=state.active[kind];if(t&&!t.paused){t.left=remaining(t);t.paused=true;}}save();}view=n.dataset.nav;if(view!=='history')justFinishedId=null;render();scrollTop();return;}const p=e.target.closest('[data-plan]');if(p){planTab=p.dataset.plan;render();return;}const h=e.target.closest('[data-history]');if(h){expandedHistory=expandedHistory===h.dataset.history?null:h.dataset.history;render();return;}const a=e.target.closest('[data-action]');if(a){handleAction(a.dataset.action,a);return;}});
-  document.addEventListener('change',async e=>{const el=e.target;if(el.matches('[data-setting]')){const key=el.dataset.setting;const isBool=el.type==='checkbox';let value=isBool?el.checked:Number(el.value);if(!isBool){const min=Number(el.min),max=Number(el.max);if(!Number.isFinite(value))value=state.settings[key];value=Math.min(max,Math.max(min,value));}state.settings[key]=value;save();render();toast('Settings saved');return;}if(el.matches('[data-plan-sets]')){
+  document.addEventListener('change',async e=>{const el=e.target;if(el.matches('[data-setting]')){const key=el.dataset.setting;const isBool=el.type==='checkbox';let value=isBool?el.checked:Number(el.value);if(!isBool){const min=Number(el.min),max=Number(el.max);if(!Number.isFinite(value))value=state.settings[key];value=Math.min(max,Math.max(min,value));}state.settings[key]=value;if(key==='comeback'&&!value)syncActiveFromComeback();save();render();toast('Settings saved');return;}if(el.matches('[data-plan-sets]')){
       const id=el.dataset.planSets,variant=el.dataset.variant;
       const raw=el.value.trim(),n=Number(raw);
       if(!PLANS[variant]?.includes(id)||raw===''||!Number.isInteger(n)||n<1||n>6){
@@ -692,6 +754,7 @@
   document.addEventListener('input',e=>{const step=stepData();if(state.active&&step?.type==='strength'){if(e.target.id==='weight'){step.draftWeight=e.target.value;save();}if(e.target.id==='reps'){step.draftReps=e.target.value;save();}}});
   window.addEventListener('hashchange',()=>{const v=location.hash.slice(1);if(['today','plan','coach','history','settings'].includes(v)){view=v;render();}});
   if(['today','plan','coach','history','settings'].includes(location.hash.slice(1)))view=location.hash.slice(1);
+  if(syncActiveFromComeback())save();
   render();timerTick=setInterval(tick,300);
   if('serviceWorker' in navigator && location.protocol.startsWith('http')) navigator.serviceWorker.register('./sw.js').catch(()=>{});
   </script>
