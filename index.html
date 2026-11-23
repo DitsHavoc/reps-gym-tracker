@@ -521,7 +521,7 @@
       <div class="timeline">${s.steps.map((x,i)=>`<button class="line ${i===s.stepIndex?'current':''} ${x.done?'done':''}" data-action="jump" data-step="${i}"><span class="index">${x.done?'✓':x.skipped?'–':String(i+1).padStart(2,'0')}</span><span class="name">${esc(x.title)}</span><span class="tag">${x.done?'Done':x.skipped?'Skipped':x.type==='strength'?`${setDoneCount(x)}/${x.targetSets} sets`:x.minutes+' min'}</span></button>`).join('')}</div>
     </details>
     <details class="disclosure workout-disclosure"><summary>Workout options</summary>
-      <button class="btn ghost block active-three-all" data-action="make-active-three">Use at least 3 sets for this workout</button>
+      <button class="btn ghost block active-three-all" data-action="make-active-three">3 sets for current &amp; upcoming exercises</button>
       <div class="flexwrap" style="padding:12px 2px"><button class="btn ghost smallbtn" data-action="prev" ${s.stepIndex===0?'disabled':''}>Previous step</button><button class="btn ghost smallbtn" data-action="skip">Skip current step</button><button class="btn danger smallbtn" data-action="end">Finish early</button></div>
     </details>`;
   }
@@ -649,7 +649,7 @@
     if(action==='make-active-three'&&s){
       let adjusted=0;
       for(const x of s.steps){
-        if(x.type!=='strength'||x.targetSets>=3)continue;
+        if(x.type!=='strength'||x.targetSets>=3||(x.done&&x!==step))continue;
         if(resizeStrengthSets(x,3)){
           adjusted++;x.manualSets=true;
           state.planSets[s.variant]={...(state.planSets[s.variant]||{}),[x.id]:3};
