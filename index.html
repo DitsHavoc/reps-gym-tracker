@@ -429,6 +429,25 @@
       </svg><div class="row small"><span class="muted">First: ${fmtN(points[0].weight)} ${esc(unit)}</span><strong>Latest: ${fmtN(points.at(-1).weight)} ${esc(unit)}</strong></div>
       <p class="tiny muted" style="margin:8px 0 0">Best logged weight per session · machines and dumbbells are tracked separately.</p></div>`;
   }
+  function measurementTrend(field){
+    const unit=field==='weight'?'kg':'cm',label=field==='weight'?'Body weight':'Waist';
+    const entries=state.measurements.filter(x=>x[field]!==null&&x[field]!==undefined&&Number(x[field])>0)
+      .slice().sort((a,b)=>a.date.localeCompare(b.date)).slice(-12);
+    if(entries.length<2)return '<p class="small muted">Add at least two measurements to see a trend.</p>';
+    const values=entries.map(x=>Number(x[field])),low=Math.min(...values),high=Math.max(...values);
+    const pad=Math.max(1,(high-low)*.3),min=low-pad,max=high+pad,span=max-min;
+    const points=entries.map((x,i)=>({
+      x:24+i*274/(entries.length-1),
+      y:110-(Number(x[field])-min)/span*84
+    }));
+    return `<div class="chart-wrap"><svg viewBox="0 0 320 145" role="img" aria-label="${esc(label)} trend from ${esc(entries[0].date)} to ${esc(entries.at(-1).date)}">
+       <line x1="19" y1="114" x2="301" y2="114" stroke="#526558"/>
+       <polyline points="${points.map(p=>p.x.toFixed(1)+','+p.y.toFixed(1)).join(' ')}" fill="none" stroke="#c2f270" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+       ${points.map(p=>`<circle cx="${p.x}" cy="${p.y}" r="4" fill="#c2f270"/>`).join('')}
+       <text x="19" y="138" fill="#c6d4cb" font-size="10">${fmtDate(entries[0].date)}</text>
+       <text x="301" y="138" fill="#c6d4cb" font-size="10" text-anchor="end">${fmtDate(entries.at(-1).date)}</text></svg>
+       <div class="row small" style="margin-top:9px"><span class="muted">First: ${fmtN(values[0])} ${unit}</span><strong>Latest: ${fmtN(values.at(-1))} ${unit}</strong></div></div>`;
+  }
   function proteinMarkup(){
     if(!state.settings.proteinCheck)return '';
     const checked=state.proteinDays[localDate()]===true;
@@ -728,6 +747,7 @@
       <div class="panel"><div class="field" style="margin-bottom:14px"><label for="progress-exercise">Choose exercise</label>
         <select id="progress-exercise">${Object.entries(EXERCISES).map(([id,x])=>`<option value="${id}" ${chartExercise===id?'selected':''}>${esc(x.name)}</option>`).join('')}</select>
       </div>${weightChart(chartExercise)}</div>
+      ${state.measurements.length>=2?`<details class="disclosure"><summary>Body measurement graphs</summary><div class="panel"><h3>Body weight</h3>${measurementTrend('weight')}<div class="divider"></div><h3>Waist</h3>${measurementTrend('waist')}<p class="tiny muted" style="margin:12px 0 0">Weekly measurements are more useful than day-to-day changes. Weight and waist don't measure muscle directly.</p></div></details>`:''}
       ${sectionTitle('Previous workouts')}${arr.length?arr.map(s=>historyItem(s)).join(''):`<div class="empty"><strong>Your first workout is waiting.</strong><span class="small">Finish a session and you'll see weights, reps and sets here.</span></div>`}
      <details class="disclosure" ${showMeasureForm?'open':''}><summary>Body measurements <span>${state.measurements.length} logged</span></summary><div class="panel"><p class="small muted">Optional: log your body weight and waist measurement weekly. Strength can improve even when the scale moves slowly.</p><button class="btn smallbtn ${showMeasureForm?'ghost':'primary'}" data-action="toggle-measure">${showMeasureForm?'Cancel':'Add measurement'}</button>${showMeasureForm?`<div class="stepgrid" style="margin-top:15px"><div class="field"><label for="bodyweight">Weight (kg)</label><input id="bodyweight" type="number" min="20" max="400" step="0.1" placeholder="Optional" inputmode="decimal" /></div><div class="field"><label for="waist">Waist (cm)</label><input id="waist" type="number" min="20" max="250" step="0.5" placeholder="Optional" inputmode="decimal" /></div></div><button class="btn primary block" style="margin-top:10px" data-action="save-measure">Save measurement</button>`:''}
      ${state.measurements.length?`<div class="divider"></div>${state.measurements.slice().reverse().map(x=>`<div class="row small" style="padding:8px 0"><span class="muted">${fmtDate(x.date)}</span><strong>${x.weight?esc(x.weight)+' kg':''}${x.weight&&x.waist?' · ':''}${x.waist?esc(x.waist)+' cm waist':''}</strong></div>`).join('')}`:''}</div></details>`;}
