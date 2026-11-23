@@ -120,7 +120,7 @@
   function todayView(){ if(state.active)return liveView();
     const date=nextWorkoutDate(), variant=scheduled(date)||'A';const now=new Date();const isToday=localDate(date)===localDate(now);const count=weeklySummary();const last=lastSession();
     const phase=state.settings.comeback?'Comeback phase · reduced sets':'Building phase · full sets';
-    return `<p class="eyebrow">${now.toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long'})}</p>
+    return `<button class="btn ghost smallbtn" style="margin:0 0 15px" data-action="back-plan" aria-label="Back to My Plan">← Back to My Plan</button><p class="eyebrow">${now.toLocaleDateString('en-GB',{weekday:'long',day:'numeric',month:'long'})}</p>
       <section class="hero"><span class="pill">${isToday?'● TODAY IS TRAINING DAY':'NEXT UP · '+fmtDate(localDate(date))}</span><h1>Workout ${variant}.<br>Stronger every week.</h1><p class="sub">Your full-body routine, set by set. I'll keep track of the weight, repetitions and rest so you can focus on lifting.</p><div class="hero-actions"><button class="btn primary big" data-action="start" data-variant="${variant}">${icon('play')} Start workout ${variant}</button><button class="btn ghost" data-nav="plan">View exercises ${icon('arrow')}</button></div></section>
       ${sectionTitle('This week')}<div class="grid2"><div class="stat"><div class="label">Sessions finished</div><div class="num">${count}<span style="font-size:15px;color:var(--muted)"> / 3</span></div><div class="label">Mon · Wed · Fri</div></div><div class="stat"><div class="label">Last session</div><div class="num" style="font-size:${last?'23':'27'}px">${last?'Workout '+esc(last.variant):'—'}</div><div class="label">${last?fmtDate(last.date):'First workout ahead'}</div></div></div>
       ${sectionTitle('Your starting point')}<div class="panel"><div class="row"><strong>${esc(phase)}</strong><span class="badge">${state.settings.comeback?'2 weeks back':'In progress'}</span></div><p class="small muted" style="margin:9px 0 0">${state.settings.comeback?'Because you had time away, 2 sets is the suggested starting point for big machines. You can choose 3 sets for any exercise in My Plan.':'Your suggested set counts can be changed separately for Workout A and B in My Plan. Keep 1–3 good reps in reserve.'}</p></div>
@@ -160,7 +160,7 @@
   function setDoneCount(step){return step.sets.filter(x=>x.completed).length;}
   function currentSet(step){return step.sets.findIndex(x=>!x.completed);}
   function liveView(){const s=state.active,step=stepData();if(!step)return '<p>Workout data unavailable.</p>';const progress=Math.round(completedCount(s)/s.steps.length*100);
-    return `<div class="row" style="margin-bottom:15px"><div><p class="eyebrow" style="margin-bottom:4px">Workout ${esc(s.variant)} · ${fmtDate(s.date)}</p><h2 style="margin:0">Let's get to work.</h2></div><button class="btn smallbtn ghost" data-action="save-exit">Save & exit</button></div><div class="row small muted" style="margin-bottom:8px"><span>${completedCount(s)} of ${s.steps.length} movements</span><strong>${progress}%</strong></div><div class="progress"><div style="width:${progress}%"></div></div>
+    return `<div class="row" style="margin-bottom:15px"><div><p class="eyebrow" style="margin-bottom:4px">Workout ${esc(s.variant)} · ${fmtDate(s.date)}</p><h2 style="margin:0">Let's get to work.</h2></div><button class="btn smallbtn ghost" data-action="back-plan" aria-label="Back to My Plan">← Back</button></div><div class="row small muted" style="margin-bottom:8px"><span>${completedCount(s)} of ${s.steps.length} movements</span><strong>${progress}%</strong></div><div class="progress"><div style="width:${progress}%"></div></div>
     <div class="focuscard" style="margin-top:17px"><div class="row"><div class="focus-icon">${step.type==='tread'?'↗':'✦'}</div><span class="stepindicator">Step ${s.stepIndex+1} / ${s.steps.length}</span></div><h1>${esc(step.title)}</h1><p class="instruction">${esc(step.type==='strength'?EXERCISES[step.id].hint:step.desc)}</p>${step.type==='strength'?strengthMarkup(step):treadMarkup(step)}</div>
     ${sectionTitle('Workout order')}<div class="timeline">${s.steps.map((x,i)=>`<button class="line ${i===s.stepIndex?'current':''} ${x.done?'done':''}" data-action="jump" data-step="${i}"><span class="index">${x.done?'✓':x.skipped?'–':String(i+1).padStart(2,'0')}</span><span class="name">${esc(x.title)}</span><span class="tag">${x.done?'Done':x.skipped?'Skipped':x.type==='strength'?`${setDoneCount(x)}/${x.targetSets} sets`:x.minutes+' min'}</span></button>`).join('')}</div>
     <div class="flexwrap" style="margin-top:15px"><button class="btn ghost smallbtn" data-action="prev" ${s.stepIndex===0?'disabled':''}>${icon('back')} Previous</button><button class="btn ghost smallbtn" data-action="skip">Skip this exercise</button><button class="btn danger smallbtn" data-action="end">Finish early</button></div>`;
@@ -229,7 +229,23 @@
   function render(){const main=$('#app');main.innerHTML=header()+(view==='today'?todayView():view==='plan'?planView():view==='history'?historyView():settingsView())+navbar();tick();}
   function startWorkout(variant){if(state.active){if(!confirm('You already have a workout in progress. Resume it instead? Press Cancel to keep your current workout.')){view='today';render();return;}view='today';render();return;}state.active=newSession(variant);save();view='today';render();scrollTop();}
   function readSetInput(weightSelector='#weight',repsSelector='#reps'){const step=stepData();if(!step)return null;const weightEl=$(weightSelector),repsEl=$(repsSelector);if(!weightEl||!repsEl)return null;const weight=weightEl.value.trim(),reps=repsEl.value.trim();if(weight===''||!Number.isFinite(Number(weight))||Number(weight)<0||Number(weight)>1000){toast('Enter a valid weight (0 is fine for bodyweight)');weightEl.focus();return null;}if(!Number.isInteger(Number(reps))||Number(reps)<1||Number(reps)>100){toast('Enter a valid repetition count');repsEl.focus();return null;}return{weight:Number(weight),reps:Number(reps)};}
-  function handleAction(action,el){let s=state.active,step=stepData();if(action==='start')return startWorkout(el.dataset.variant);
+  function handleAction(action,el){let s=state.active,step=stepData();
+    if(action==='back-plan'||action==='save-exit'){
+      if(s){
+        for(const kind of ['rest','timer']){
+          const timer=s[kind];
+          if(timer&&!timer.paused){
+            timer.left=remaining(timer);
+            timer.paused=true;
+          }
+        }
+      }
+      save();
+      view='plan';render();scrollTop();
+      if(s)toast('Workout saved — return to Today to resume');
+      return;
+    }
+    if(action==='start')return startWorkout(el.dataset.variant);
     if(action==='set-all-3'||action==='reset-plan-sets'){
       const variant=el.dataset.variant;
       if(!PLANS[variant])return;
@@ -264,7 +280,6 @@
     if(action==='toggle-tread'&&s)return toggleClock('timer');
     if(action==='restart-tread'&&s&&step?.type==='tread')return startClock('timer',step.id,step.minutes*60);
     if(action==='done-tread'&&s&&step?.type==='tread'){step.done=true;s.timer=null;save();return getStepAfter();}
-    if(action==='save-exit'){view='plan';save();render();scrollTop();toast('Workout saved — resume from Today');return;}
     if(action==='prev'&&s&&s.stepIndex>0){s.stepIndex--;s.rest=null;s.timer=null;save();render();scrollTop();return;}
     if(action==='skip'&&s){if(!confirm(`Skip ${step.title}? You can return to it from the workout list.`))return;step.skipped=true;s.rest=null;s.timer=null;return getStepAfter();}
     if(action==='jump'&&s){s.stepIndex=Number(el.dataset.step);s.rest=null;s.timer=null;save();render();scrollTop();return;}
