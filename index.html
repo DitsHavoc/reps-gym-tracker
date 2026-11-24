@@ -270,7 +270,7 @@
     chest_press: { name:'Chest press', gear:'Chest press machine', hint:'Shoulder blades steady; push without bouncing.', rest:90, base:3, reps:10, weight:45, unit:'kg' },
     db_chest_press: { name:'Dumbbell chest press', gear:'Dumbbells and bench', hint:'Start light, keep forearms controlled and feet grounded. Weight logged per hand.', rest:90, base:3, reps:10, weight:'', unit:'kg/hand' },
     pulldown: { name:'Lat pulldown', gear:'Lat pulldown machine', hint:'Pull towards your upper chest; avoid leaning back sharply.', rest:90, base:3, reps:10, weight:45, unit:'kg' },
-    row: { name:'Seated row', gear:'Plate-loaded row or cable row', hint:'Pull elbows back and pause; keep your torso stable.', rest:90, base:3, reps:10, weight:'', unit:'kg' },
+    row: { name:'Cable row', gear:'Cable station + row handle', hint:'Brace your torso and pull the handle towards your waist, keeping your back neutral. Move with control.', rest:90, base:3, reps:10, weight:'', unit:'kg' },
     db_row: { name:'One-arm dumbbell row', gear:'One dumbbell and bench (each side)', hint:'Support your free hand on the bench; pull without twisting. Log reps per side and weight per hand.', rest:90, base:3, reps:10, weight:'', unit:'kg/hand' },
     rdl: { name:'Dumbbell Romanian deadlift', gear:'Dumbbells (weight per hand)', hint:'Soft knees, hinge at the hips and keep dumbbells close to your legs. Ask a gym instructor to check your form first.', rest:90, base:3, reps:10, weight:'', unit:'kg/hand' },
     rear_delt: { name:'Rear deltoid fly', gear:'Pec deck — facing inwards', hint:'Small, controlled movement. Focus on the back of your shoulders.', rest:60, base:3, reps:10, weight:35, unit:'kg' },
@@ -378,6 +378,10 @@
     for(const {session,step} of strengthHistory(id)){
       for(const set of step.sets){
         const kg=Number(set.weight),reps=Number(set.reps);
+        if(timedExercise(id)){
+          if(set.completed&&reps>0&&(!best||reps>best.reps))best={weight:0,reps,date:session.date};
+          continue;
+        }
         if(!set.completed||!Number.isFinite(kg)||kg<=0||reps<6)continue;
         if(!best||kg>best.weight)best={weight:kg,reps,date:session.date};
       }
@@ -390,8 +394,21 @@
     if(c.energy<=2||c.sleep<=2||c.soreness>=4)return {state:'caution',label:'Consider an easier day',text:'You reported low energy, poor sleep or high soreness. Consider a lighter session, longer rests, or a recovery day. This is self-reported guidance, not a medical measurement.'};
     return {state:'normal',label:'Normal training may be fine',text:'Your check-in looks reasonable. Still adjust your workout based on how you feel while moving.'};
   }
+  function timedCoach(id,history,pb){
+  const base={id,pb,name:EXERCISES[id].name};
+  if(!history.length)return {...base,status:'new',label:'Start logging',text:'Record a comfortable plank hold. Try 20–30 seconds with a steady body position.',last:'No holds yet'};
+  const latest=history.at(-1).step,holds=latest.sets.filter(x=>x.completed);
+  const best=Math.max(0,...holds.map(x=>Number(x.reps)||0));
+  const last=holds.map(x=>x.reps+' sec').join(' / ');
+  if(readiness().state==='caution'||latest.effort==='hard')return {...base,status:'hold',label:'Stay comfortable',text:'Match your previous plank time with good form, or use a shorter hold when tired.',last};
+  const old=history.length>=2?history.at(-2).step.sets.filter(x=>x.completed).map(x=>Number(x.reps)):null;
+  const oldBest=old?.length?Math.max(...old):0;
+  return {...base,status:'build',label:oldBest&&best>oldBest?'Longer plank hold':'Build your holds',
+    text:oldBest&&best>oldBest?'Your best hold has improved. Keep focusing on form before adding more time.':'Aim to match your last holds. Add about 5 seconds when they feel steady and comfortable.',last};
+}
   function coachAdvice(id){
     const history=strengthHistory(id),target=targetReps(id),unit=EXERCISES[id].unit,pb=exercisePB(id);
+    if(timedExercise(id))return timedCoach(id,history,pb);
     const base={id,pb,name:EXERCISES[id].name};
     if(!history.length)return {...base,status:'new',label:'Start logging',text:'No completed sets yet. Record your weights, reps and effort for a couple of workouts to unlock personalised advice.',last:'No sessions yet'};
     const step=history.at(-1).step,load=stableLoad(step);
@@ -421,7 +438,12 @@
   }
   function lastTimeMarkup(id){
     const prev=previousPerformance(id);
-    if(!prev)return `<div class="last-time"><strong>First time logging this exercise</strong><span>Pick a comfortable weight and aim for controlled reps.</span></div>`;
+    if(!prev)return `<div class="last-time"><strong>First time logging this exercise</strong><span>${timedExercise(id)?'Start with 20–30 seconds and keep good form.':'Pick a comfortable weight and aim for controlled reps.'}</span></div>`;
+    if(timedExercise(id)){
+      const secs=prev.sets.map(x=>x.reps).join(' / ');
+      return `<div class="last-time"><div class="row"><strong>Last time</strong><span class="tiny muted">${fmtDate(prev.date)}</span></div>
+        <div class="last-values">${esc(secs)} sec</div><span>Match your holds, then add around 5 seconds when comfortable.</span></div>`;
+    }
     const unit=EXERCISES[id].unit;
     const same=prev.sets.every(set=>Number(set.weight)===Number(prev.sets[0].weight));
     const reps=prev.sets.map(set=>set.reps).join(' / ');
@@ -525,7 +547,7 @@
   function sessionSummary(session){
     const completed=(session.steps||[]).filter(x=>x.type==='strength').flatMap(x=>(x.sets||[]).filter(set=>set.completed).map(set=>({step:x,set})));
     const cardio=(session.steps||[]).filter(x=>x.type==='tread'&&x.done).reduce((m,x)=>m+Number(x.actual?.minutes??x.minutes??0),0);
-    const best=completed.reduce((b,x)=>Number(x.set.weight)>Number(b?.set.weight??-1)?x:b,null);
+    const best=completed.filter(x=>Number(x.set.weight)>0).reduce((b,x)=>Number(x.set.weight)>Number(b?.set.weight??-1)?x:b,null);
     const duration=Math.max(1,Math.round(((session.finishedAt||Date.now())-session.startedAt)/60000));
     const prior=state.sessions.filter(s=>s.id!==session.id&&s.finishedAt&&s.finishedAt<=(session.finishedAt||Date.now()));
     const improved=[];
@@ -590,6 +612,12 @@
     return {xp,level:1+Math.floor(xp/250),progress:xp%250,next:250-xp%250,records};
   }
   function exerciseTrend(id){
+    if(timedExercise(id)){
+      const timed=strengthHistory(id).slice(-2);
+      if(timed.length<2)return 'More holds needed for a trend';
+      const peak=x=>Math.max(...x.step.sets.filter(y=>y.completed).map(y=>Number(y.reps)||0));
+      return peak(timed[1])>peak(timed[0])?'Improving — longer plank hold':peak(timed[1])===peak(timed[0])?'Maintaining — steady hold':'Shorter hold — focus on form';
+    }
     const recent=strengthHistory(id).filter(x=>fullStrength(x.step)).slice(-2);
     if(recent.length<2)return 'More sessions needed for a trend';
     const a=recent[0].step,b=recent[1].step;
@@ -607,7 +635,7 @@
     return `<div class="coach-card">
       <div class="row"><h3>${esc(a.name)}</h3><span class="coach-flag ${a.status==='ready'?'ready':a.status==='hold'?'hold':''}">${esc(a.label)}</span></div>
       <p>${esc(a.text)}</p>
-      <div class="tiny muted"><strong style="color:#d7edc2">${esc(exerciseTrend(a.id))}</strong><div style="margin-top:5px">${a.pb?'Personal best: '+fmtN(a.pb.weight)+' '+esc(EXERCISES[a.id].unit)+' × '+a.pb.reps+' reps':'No personal best yet'}${brief?'':' · '+esc(a.last)}</div></div>
+      <div class="tiny muted"><strong style="color:#d7edc2">${esc(exerciseTrend(a.id))}</strong><div style="margin-top:5px">${a.pb?(timedExercise(a.id)?'Longest hold: '+a.pb.reps+' sec':'Personal best: '+fmtN(a.pb.weight)+' '+esc(EXERCISES[a.id].unit)+' × '+a.pb.reps+' reps'):'No personal best yet'}${brief?'':' · '+esc(a.last)}</div></div>
     </div>`;
   }
   function coachView(){
