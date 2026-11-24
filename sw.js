@@ -1,5 +1,5 @@
 'use strict';
-const CACHE_NAME = 'reps-gym-v12';
+const CACHE_NAME = 'reps-gym-v13';
 const FILES = ['./','./index.html','./manifest.webmanifest','./icon.svg','./icon-192.png','./icon-512.png'];
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(CACHE_NAME).then(cache => cache.addAll(FILES)).then(() => self.skipWaiting()));
