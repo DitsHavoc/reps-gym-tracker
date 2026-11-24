@@ -247,6 +247,15 @@
     .summary-best{font-size:12px;line-height:1.6;padding:10px 0;margin:0}
     @media(max-width:365px){.quick-number button{flex-basis:26px;min-width:26px}.quick-number input{font-size:18px!important}.quick-number{gap:1px}.workout-summary-grid strong{font-size:22px}}
 
+
+    .timed-target-label{display:flex;align-items:center;min-height:46px;color:#c7e5b8;font-size:12px;padding:0 7px}
+    .timed-hold-panel{background:#1d3325;border:1px solid #4f7753;border-radius:14px;padding:15px;margin:12px 0}
+    .timed-hold-panel .count{font-variant-numeric:tabular-nums}
+    .timed-hold-panel p{line-height:1.5}
+    .timed-entry{margin:11px 0}
+    .timed-entry .field{max-width:270px;margin:0 auto}
+    .timed-entry .quick-number input{text-align:center}
+    .timed-hold-panel button{min-height:45px}
     @media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important;transition:none!important}}
   </style>
 </head>
@@ -663,7 +672,7 @@
   function planList(v,showCard=false){let ids=PLANS[v], items=[{type:'tread',name:'Treadmill warm-up',meta:`${state.settings.warmup} min · easy pace`,dose:'START'}];items.push(...ids.map(id=>({type:'strength',id,name:EXERCISES[id].name,meta:EXERCISES[id].gear,dose:exerciseDose(id,v),rest:`${restSeconds(id)}s rest`})));items.push({type:'tread',name:'Incline treadmill walk',meta:`${state.settings.cardio} min · ${state.settings.incline}% incline`,dose:'FINISH'});const inner=items.map((x,i)=>`<div class="exercise-item"><div class="ex-number">${String(i+1).padStart(2,'0')}</div><div class="main"><strong>${esc(x.name)}</strong><span>${esc(x.meta)}</span></div><div class="dose">${x.dose}<small>${x.rest||''}</small></div></div>`).join('');return showCard?`<div class="panel">${inner}</div>`:inner;}
   function targetsMarkup(variant){
     return `<div class="panel">
-      <p class="small muted" style="margin:0 0 13px">Set your weight, number of sets and target reps for Workout ${variant}. Each workout can be different. Dumbbell weights are per hand.</p>
+      <p class="small muted" style="margin:0 0 13px">Set weights, sets and rep targets for Workout ${variant}. Planks are logged in seconds, and dumbbell weights are per hand.</p>
       <div class="flexwrap" style="margin-bottom:15px">
         <button class="btn smallbtn primary" data-action="set-all-3" data-variant="${variant}">3 sets for every exercise</button>
         <button class="btn smallbtn ghost" data-action="reset-plan-sets" data-variant="${variant}">Use suggested sets</button>
@@ -671,12 +680,12 @@
       ${PLANS[variant].map(id=>`<div class="target-row">
         <div class="target-name"><strong>${esc(EXERCISES[id].name)}</strong><span class="tiny muted">${EXERCISES[id].unit}</span></div>
         <div class="target-fields">
-          <div class="field"><label for="plan-weight-${id}">Weight</label><input id="plan-weight-${id}" data-plan-weight="${id}" type="number" min="0" max="1000" step="0.5" inputmode="decimal" placeholder="—" value="${esc(plannedWeight(id))}"></div>
+          ${timedExercise(id)?'<div class="field"><label>Exercise</label><div class="timed-target-label">Timed hold</div></div>':`<div class="field"><label for="plan-weight-${id}">Weight</label><input id="plan-weight-${id}" data-plan-weight="${id}" type="number" min="0" max="1000" step="0.5" inputmode="decimal" placeholder="—" value="${esc(plannedWeight(id))}"></div>`}
           <div class="field"><label for="plan-sets-${variant}-${id}">Sets</label><input id="plan-sets-${variant}-${id}" data-plan-sets="${id}" data-variant="${variant}" type="number" min="1" max="6" step="1" inputmode="numeric" value="${exerciseSets(id,variant)}"></div>
-          <div class="field"><label for="plan-reps-${id}">Reps</label><input id="plan-reps-${id}" data-plan-reps="${id}" type="number" min="1" max="100" step="1" inputmode="numeric" value="${esc(targetReps(id))}"></div>
+          <div class="field"><label for="plan-reps-${id}">${timedExercise(id)?'Seconds':'Reps'}</label><input id="plan-reps-${id}" data-plan-reps="${id}" type="number" min="1" max="${timedExercise(id)?300:100}" step="1" inputmode="numeric" value="${esc(targetReps(id))}"></div>
         </div>
       </div>`).join('')}
-      <p class="tiny muted" style="margin:12px 0 0">3 sets are the default for every strength exercise. You can still customise each exercise here or while training.</p>
+      <p class="tiny muted" style="margin:12px 0 0">The suggested programme uses 3 sets for lifts and 2 timed plank holds. You can change either here or during training.</p>
     </div>`;
   }
   function planView(){
@@ -905,7 +914,7 @@
       <p class="tiny muted" style="margin:4px 16px 0 0">Can notify when a rest ends while the app is running. Android may delay notifications if the browser is suspended; not guaranteed on a locked phone.</p>
       </div><button class="btn ghost smallbtn" data-action="toggle-alerts">${state.settings.restAlerts?'Turn off':'Enable'}</button></div>
     ${settingSwitch('Optional protein check-in','Show one gentle daily protein tick on Today. No timed alerts or supplement reminders.','proteinCheck',!!state.settings.proteinCheck)}</div>
-    <details class="disclosure"><summary>Default starting weights</summary><div class="panel"><p class="small muted">Your last logged weight is suggested first. These are editable starting values, <strong>not targets you must reach</strong>. Dumbbell values are per hand.</p>${Object.entries(EXERCISES).map(([id,x])=>`<div class="weightrow"><div class="small"><strong>${esc(x.name)}</strong><div class="tiny muted">${x.unit}</div></div><input aria-label="Starting weight for ${esc(x.name)}" data-weight="${id}" type="number" min="0" max="1000" step="0.5" inputmode="decimal" placeholder="—" value="${esc(state.weights[id])}" /></div>`).join('')}</div></details>
+    <details class="disclosure"><summary>Default starting weights</summary><div class="panel"><p class="small muted">Your last logged weight is suggested first. These are editable starting values, <strong>not targets you must reach</strong>. Dumbbell values are per hand; planks are timed.</p>${Object.entries(EXERCISES).filter(([id])=>!timedExercise(id)).map(([id,x])=>`<div class="weightrow"><div class="small"><strong>${esc(x.name)}</strong><div class="tiny muted">${x.unit}</div></div><input aria-label="Starting weight for ${esc(x.name)}" data-weight="${id}" type="number" min="0" max="1000" step="0.5" inputmode="decimal" placeholder="—" value="${esc(state.weights[id])}" /></div>`).join('')}</div></details>
     ${sectionTitle('Back up your progress')}<div class="panel"><p class="small muted">Your data is stored on this device, not automatically in the cloud. Download a backup or share one to Google Drive from your phone. Save a new backup occasionally.</p><div class="flexwrap"><button class="btn primary" data-action="export">${icon('download')} Download backup</button><button class="btn ghost" data-action="share-backup">Share / save to Drive</button><label class="btn ghost" for="importFile" style="cursor:pointer">Import backup</label><input id="importFile" type="file" accept=".json,application/json" hidden /></div></div>
     <div class="panel"><h3>About your plan</h3><p class="small muted mb0">Monday, Wednesday and Friday alternate A/B workouts weekly. The app remembers where you were if you leave mid-session. Your treadmill is not controlled by this app; timers are guidance only.</p></div>`;}
   function settingSwitch(label,desc,key,v){return `<div class="setting-row row"><div><strong class="small">${label}</strong><p class="tiny muted" style="margin:4px 16px 0 0">${desc}</p></div><input type="checkbox" class="toggle" role="switch" aria-label="${label}" data-setting="${key}" ${v?'checked':''}></div>`;}
@@ -1135,7 +1144,7 @@
       const id=isWeight?el.dataset.planWeight:el.dataset.planReps;
       if(!EXERCISES[id])return;
       const val=el.value.trim(), n=Number(val);
-      if(isWeight?(val!==''&&(!Number.isFinite(n)||n<0||n>1000)):(!Number.isInteger(n)||n<1||n>100)){
+      if(isWeight?(val!==''&&(!Number.isFinite(n)||n<0||n>1000)):(!Number.isInteger(n)||n<1||n>(timedExercise(id)?300:100))){
         toast('Check the weight or reps value');render();return;
       }
       state.planned[id]={...(state.planned[id]||{}),[isWeight?'weight':'reps']:isWeight&&val===''?'':n};
