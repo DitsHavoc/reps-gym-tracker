@@ -553,6 +553,17 @@
     const improved=[];
     for(const step of session.steps||[]){
       if(step.type!=='strength')continue;
+      if(timedExercise(step.id)){
+        const holds=(step.sets||[]).filter(x=>x.completed).map(x=>Number(x.reps));
+        if(!holds.length)continue;
+        const previous=prior.slice().sort((a,b)=>b.finishedAt-a.finishedAt)
+          .map(s=>(s.steps||[]).find(x=>x.type==='strength'&&x.id===step.id))
+          .find(x=>x&&(x.sets||[]).some(y=>y.completed));
+        const previousHolds=(previous?.sets||[]).filter(x=>x.completed).map(x=>Number(x.reps));
+        if(previousHolds.length&&Math.max(...holds)>Math.max(...previousHolds))
+          improved.push({name:step.title,detail:'Longer hold'});
+        continue;
+      }
       const current=(step.sets||[]).filter(x=>x.completed&&Number(x.weight)>0);
       if(!current.length)continue;
       const previous=prior.slice().sort((a,b)=>b.finishedAt-a.finishedAt)
@@ -796,7 +807,7 @@
     </details>
     <details class="disclosure workout-disclosure"><summary>Workout options</summary>
       ${step.type==='strength'&&SWAPS[step.id]&&!step.sets.some(x=>x.completed)?`<button class="btn ghost block active-three-all" data-action="swap-exercise" data-swap="${SWAPS[step.id]}">${step.swappedFrom?'Use original exercise':'Swap to '+esc(EXERCISES[SWAPS[step.id]].name)}</button><p class="tiny muted" style="padding:0 13px">Swaps affect this session only. We track each movement separately.</p>`:''}
-      <button class="btn ghost block active-three-all" data-action="make-active-three">3 sets for current &amp; upcoming exercises</button>
+      <button class="btn ghost block active-three-all" data-action="make-active-three">3 sets for current &amp; upcoming lifts</button>
       <div class="flexwrap" style="padding:12px 2px"><button class="btn ghost smallbtn" data-action="prev" ${s.stepIndex===0?'disabled':''}>Previous step</button><button class="btn ghost smallbtn" data-action="skip">Skip current step</button><button class="btn danger smallbtn" data-action="end">Finish early</button></div>
     </details>`;
   }
@@ -954,7 +965,7 @@
       tag:'reps-rest',renotify:false,icon:'./icon-192.png',
     })).catch(()=>{});}catch{}
   }
-  function tick(){const active=state.active;if(!active)return;const timer=active.rest||active.timer;if(!timer)return;const el=$('#clock-display');if(el)el.textContent=fmtTime(remaining(timer));if(remaining(timer)===0&&!timer.paused){if(active.rest){active.rest=null;save();beep();notifyRestFinished();render();toast('Rest finished — next set');}else if(active.timer&&!active.timer.notified){active.timer.notified=true;save();beep();toast(timedExercise(active.timer.stepId)?'Hold finished — log your seconds':'Time complete! Mark the walk done');}}}
+  function tick(){const active=state.active;if(!active)return;const timer=active.rest||active.timer;if(!timer)return;const el=$('#clock-display');if(el)el.textContent=fmtTime(remaining(timer));if(remaining(timer)===0&&!timer.paused){if(active.rest){active.rest=null;save();beep();notifyRestFinished();render();toast('Rest finished — next set');}else if(active.timer&&!active.timer.notified){const hold=timedExercise(active.timer.stepId);active.timer.notified=true;save();beep();if(hold)render();toast(hold?'Hold finished — log your seconds':'Time complete! Mark the walk done');}}}
   function startClock(kind,stepId,secs){const timer={stepId,paused:false,left:secs,until:Date.now()+secs*1000,notified:false};if(kind==='rest')state.active.rest=timer;else state.active.timer=timer;save();render();}
   function toggleClock(kind){const t=state.active?.[kind];if(!t)return;if(t.paused){t.paused=false;t.until=Date.now()+t.left*1000;}else{t.left=remaining(t);t.paused=true;}save();render();}
   function getStepAfter(){const s=state.active;let n=s.stepIndex+1;if(n>=s.steps.length){finishWorkout();return;}s.stepIndex=n;s.rest=null;s.timer=null;save();render();scrollTop();}
@@ -1056,7 +1067,7 @@
     if(action==='make-active-three'&&s){
       let adjusted=0;
       for(const x of s.steps){
-        if(x.type!=='strength'||x.targetSets>=3||(x.done&&x!==step))continue;
+        if(x.type!=='strength'||timedExercise(x.id)||x.targetSets>=3||(x.done&&x!==step))continue;
         if(resizeStrengthSets(x,3)){
           adjusted++;x.manualSets=true;
           state.planSets[s.variant]={...(state.planSets[s.variant]||{}),[x.id]:3};
