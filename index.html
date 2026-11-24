@@ -271,7 +271,7 @@
     db_chest_press: { name:'Dumbbell chest press', gear:'Dumbbells and bench', hint:'Start light, keep forearms controlled and feet grounded. Weight logged per hand.', rest:90, base:3, reps:10, weight:'', unit:'kg/hand' },
     pulldown: { name:'Lat pulldown', gear:'Lat pulldown machine', hint:'Pull towards your upper chest; avoid leaning back sharply.', rest:90, base:3, reps:10, weight:45, unit:'kg' },
     row: { name:'Cable row', gear:'Cable station + row handle', hint:'Brace your torso and pull the handle towards your waist, keeping your back neutral. Move with control.', rest:90, base:3, reps:10, weight:'', unit:'kg' },
-    db_row: { name:'One-arm dumbbell row', gear:'One dumbbell and bench (each side)', hint:'Support your free hand on the bench; pull without twisting. Log reps per side and weight per hand.', rest:90, base:3, reps:10, weight:'', unit:'kg/hand' },
+    db_row: { name:'One-arm dumbbell row', gear:'Dumbbell + adjustable bench (both sides)', hint:'Support one hand on the bench. Row the dumbbell without twisting your torso. Complete the target reps on EACH side; enter the weight of one dumbbell.', rest:90, base:3, reps:10, weight:'', unit:'kg/hand' },
     rdl: { name:'Dumbbell Romanian deadlift', gear:'Dumbbells (weight per hand)', hint:'Soft knees, hinge at the hips and keep dumbbells close to your legs. Ask a gym instructor to check your form first.', rest:90, base:3, reps:10, weight:'', unit:'kg/hand' },
     rear_delt: { name:'Rear deltoid fly', gear:'Pec deck — facing inwards', hint:'Small, controlled movement. Focus on the back of your shoulders.', rest:60, base:3, reps:10, weight:35, unit:'kg' },
     pec_fly: { name:'Pec fly', gear:'Pec deck — facing outwards', hint:'Control the return and avoid forcing a deep shoulder stretch.', rest:60, base:3, reps:10, weight:35, unit:'kg' },
@@ -283,9 +283,9 @@
   };
   const PLANS = {
     A:['leg_press','chest_press','pulldown','rdl','rear_delt','triceps','plank'],
-    B:['leg_press','chest_press','row','db_shoulder_press','leg_curl','curls','plank']
+    B:['leg_press','chest_press','db_row','db_shoulder_press','leg_curl','curls','plank']
   };
-  const SWAPS={chest_press:'db_chest_press',db_chest_press:'chest_press',row:'db_row',db_row:'row'};
+  const SWAPS={chest_press:'db_chest_press',db_chest_press:'chest_press',row:'db_row'};
   const DEFAULT = () => ({
     settings:{ warmup:6, cardio:15, incline:2, bigRest:90, smallRest:60, sound:true, proteinCheck:false, restAlerts:false, keepAwake:false },
     weights:Object.fromEntries(Object.entries(EXERCISES).map(([id,x]) => [id,x.weight])),
