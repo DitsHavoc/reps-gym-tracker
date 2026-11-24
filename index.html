@@ -267,11 +267,14 @@
     rear_delt: { name:'Rear deltoid fly', gear:'Pec deck — facing inwards', hint:'Small, controlled movement. Focus on the back of your shoulders.', rest:60, base:3, reps:10, weight:35, unit:'kg' },
     pec_fly: { name:'Pec fly', gear:'Pec deck — facing outwards', hint:'Control the return and avoid forcing a deep shoulder stretch.', rest:60, base:3, reps:10, weight:35, unit:'kg' },
     triceps: { name:'Rope triceps pushdown', gear:'Cable machine + rope', hint:'Keep elbows close to your sides; move through the elbows.', rest:60, base:3, reps:10, weight:'', unit:'kg' },
-    curls: { name:'Dumbbell bicep curls', gear:'Dumbbells (weight per hand)', hint:'Elbows still, no swinging. Choose a weight you can control.', rest:60, base:3, reps:10, weight:'', unit:'kg/hand' }
+    curls: { name:'Dumbbell bicep curls', gear:'Dumbbells (weight per hand)', hint:'Elbows still, no swinging. Choose a weight you can control.', rest:60, base:3, reps:10, weight:'', unit:'kg/hand' },
+    db_shoulder_press: { name:'Dumbbell shoulder press', gear:'Dumbbells + adjustable bench (weight per hand)', hint:'Set the bench upright, brace your core and press upwards with a comfortable range. Start light and avoid arching your back.', rest:90, base:3, reps:10, weight:'', unit:'kg/hand' },
+    leg_curl: { name:'Lying leg curl', gear:'Green padded lying leg curl machine', hint:'Align your knees with the machine pivot, secure the roller over your lower legs and curl smoothly without lifting your hips.', rest:60, base:3, reps:10, weight:'', unit:'kg' },
+    plank: { name:'Plank', gear:'Clear floor space or exercise mat', hint:'Rest on your forearms and toes, keep your body in a straight line and breathe steadily. Stop if your back starts to sag.', rest:60, base:2, reps:30, weight:0, unit:'sec', timed:true }
   };
   const PLANS = {
-    A:['leg_press','chest_press','pulldown','rdl','rear_delt','triceps'],
-    B:['leg_press','row','chest_press','pulldown','rdl','pec_fly','curls']
+    A:['leg_press','chest_press','pulldown','rdl','rear_delt','triceps','plank'],
+    B:['leg_press','chest_press','row','db_shoulder_press','leg_curl','curls','plank']
   };
   const SWAPS={chest_press:'db_chest_press',db_chest_press:'chest_press',row:'db_row',db_row:'row'};
   const DEFAULT = () => ({
@@ -322,12 +325,15 @@
   function exerciseSets(id, variant){
     const chosen=Number(state.planSets?.[variant]?.[id]);
     if(Number.isInteger(chosen)&&chosen>=1&&chosen<=6)return chosen;
-    return 3;
+    return EXERCISES[id]?.base||3;
   }
   function targetReps(id){
     const n=Number(state.planned?.[id]?.reps);
-    return Number.isInteger(n)&&n>=1&&n<=100?n:EXERCISES[id].reps;
+    return Number.isInteger(n)&&n>=1&&n<=(EXERCISES[id]?.timed?300:100)?n:EXERCISES[id].reps;
   }
+  function timedExercise(id){return !!EXERCISES[id]?.timed;}
+  function exerciseDose(id,variant){return exerciseSets(id,variant)+' × '+targetReps(id)+(timedExercise(id)?' sec':' reps');}
+  function completedSetLabel(id,set){return timedExercise(id)?fmtN(Number(set.reps))+' sec':fmtN(Number(set.weight))+' '+(EXERCISES[id]?.unit||'kg')+' × '+set.reps+' reps';}
   function plannedWeight(id){
     const manual=state.planned?.[id]?.weight;
     return manual!==undefined?manual:bestWeight(id);
@@ -654,7 +660,7 @@
       <details class="disclosure"><summary>See Workout ${variant} exercise order <span>${PLANS[variant].length+2} steps</span></summary>${planList(variant,true)}</details>
       ${last?`<p class="footertext">Last workout: ${fmtDate(last.date)} · Workout ${esc(last.variant)}. Your history stays saved on this device.</p>`:`<p class="footertext">Your starting weights are suggestions. Start comfortably, then build up as you recover.</p>`}`;
   }
-  function planList(v,showCard=false){let ids=PLANS[v], items=[{type:'tread',name:'Treadmill warm-up',meta:`${state.settings.warmup} min · easy pace`,dose:'START'}];items.push(...ids.map(id=>({type:'strength',id,name:EXERCISES[id].name,meta:EXERCISES[id].gear,dose:`${exerciseSets(id,v)} × ${targetReps(id)}`,rest:`${restSeconds(id)}s rest`})));items.push({type:'tread',name:'Incline treadmill walk',meta:`${state.settings.cardio} min · ${state.settings.incline}% incline`,dose:'FINISH'});const inner=items.map((x,i)=>`<div class="exercise-item"><div class="ex-number">${String(i+1).padStart(2,'0')}</div><div class="main"><strong>${esc(x.name)}</strong><span>${esc(x.meta)}</span></div><div class="dose">${x.dose}<small>${x.rest||''}</small></div></div>`).join('');return showCard?`<div class="panel">${inner}</div>`:inner;}
+  function planList(v,showCard=false){let ids=PLANS[v], items=[{type:'tread',name:'Treadmill warm-up',meta:`${state.settings.warmup} min · easy pace`,dose:'START'}];items.push(...ids.map(id=>({type:'strength',id,name:EXERCISES[id].name,meta:EXERCISES[id].gear,dose:exerciseDose(id,v),rest:`${restSeconds(id)}s rest`})));items.push({type:'tread',name:'Incline treadmill walk',meta:`${state.settings.cardio} min · ${state.settings.incline}% incline`,dose:'FINISH'});const inner=items.map((x,i)=>`<div class="exercise-item"><div class="ex-number">${String(i+1).padStart(2,'0')}</div><div class="main"><strong>${esc(x.name)}</strong><span>${esc(x.meta)}</span></div><div class="dose">${x.dose}<small>${x.rest||''}</small></div></div>`).join('');return showCard?`<div class="panel">${inner}</div>`:inner;}
   function targetsMarkup(variant){
     return `<div class="panel">
       <p class="small muted" style="margin:0 0 13px">Set your weight, number of sets and target reps for Workout ${variant}. Each workout can be different. Dumbbell weights are per hand.</p>
@@ -691,7 +697,7 @@
       <p class="footertext">Changes here apply to future workouts. During a workout, use the +/− controls on the exercise to adjust its sets immediately.</p>`;
   }
   function newSession(variant){const steps=[{type:'tread',id:'warmup',title:'Treadmill warm-up',minutes:Number(state.settings.warmup),incline:0,desc:'Easy walking pace, 0–1% incline to warm your body up.',done:false,skipped:false}];
-    for(const id of PLANS[variant]){const x=EXERCISES[id],count=exerciseSets(id,variant),weight=plannedWeight(id),reps=targetReps(id);steps.push({type:'strength',id,title:x.name,targetReps:reps,targetSets:count,sets:Array.from({length:count},()=>({weight:'',reps,completed:false})),draftWeight:weight,draftReps:reps,done:false,skipped:false});}
+    for(const id of PLANS[variant]){const x=EXERCISES[id],count=exerciseSets(id,variant),weight=timedExercise(id)?0:plannedWeight(id),reps=targetReps(id);steps.push({type:'strength',id,title:x.name,targetReps:reps,targetSets:count,sets:Array.from({length:count},()=>({weight:'',reps,completed:false})),draftWeight:weight,draftReps:reps,done:false,skipped:false});}
     steps.push({type:'tread',id:'cardio',title:'Incline treadmill walk',minutes:Number(state.settings.cardio),incline:Number(state.settings.incline),desc:'Moderate pace: breathe harder but still be able to talk. Start with 1–3% incline and adjust comfortably.',done:false,skipped:false});
     return {id:`s_${Date.now()}_${Math.floor(Math.random()*1e6)}`,date:localDate(),variant,startedAt:Date.now(),finishedAt:null,stepIndex:0,steps,rest:null,timer:null,partial:false};}
   function bestWeight(id){for(const s of state.sessions.slice().reverse()){for(const step of s.steps||[]){if(step.id===id&&step.type==='strength'){const sets=step.sets.filter(x=>x.completed&&x.weight!==''&&Number(x.weight)>=0);if(sets.length)return sets[sets.length-1].weight;}}}return state.weights[id]??'';}
