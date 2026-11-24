@@ -780,7 +780,56 @@
       <div class="effort-buttons">${[['easy','Easy','5+ left'],['good','Good','2–3 left'],['hard','Hard','0–1 left']].map(([key,label,detail])=>`<button data-action="rate-effort" data-effort="${key}" class="${step.effort===key?'chosen':''}">${label}<br><span class="tiny">${detail}</span></button>`).join('')}</div>
     </div>`;
   }
+  function timedStrengthMarkup(step){
+  const s=state.active,idx=currentSet(step),finished=idx===-1,done=step.sets.filter(x=>x.completed).length;
+  const resting=s.rest?.stepId===step.id&&remaining(s.rest)>0;
+  const timer=s.timer?.stepId===step.id?s.timer:null,last=step.sets.slice().reverse().find(x=>x.completed);
+  const next=s.steps[s.stepIndex+1],note=exerciseNoteMarkup(step.id);
+  const chips=`<div class="set-chips">${step.sets.map((x,i)=>`<span class="setchip ${x.completed?'done':i===idx?'current':''}">${x.completed?'✓':i+1}</span>`).join('')}</div>`;
+  const heading=`<div class="set-heading"><strong>${finished?'All holds complete':`Hold ${idx+1} of ${step.targetSets}`}</strong><span class="small muted">${step.targetReps}s target · ${restSeconds(step.id)}s rest</span></div>
+    <div class="active-set-controls" role="group" aria-label="Change number of holds"><span>Holds for this exercise</span>
+      <div class="set-stepper">
+      <button data-action="decrease-active-sets" aria-label="Remove a hold" ${step.targetSets<=Math.max(1,done)||step.sets.at(-1)?.completed?'disabled':''}>−</button>
+      <strong>${step.targetSets}</strong><button data-action="increase-active-sets" aria-label="Add a hold" ${step.targetSets>=6?'disabled':''}>+</button>
+      </div></div>`;
+  const rows=step.sets.map((set,i)=>!set.completed?'':`<div class="loggedset">
+    <div class="row"><div><span class="stepindicator">HOLD ${i+1}</span><div class="setresult">${esc(set.reps)} seconds</div></div>
+    ${s.editingSet?.stepId===step.id&&s.editingSet.index===i?'':`<button class="btn ghost smallbtn" data-action="edit-set" data-index="${i}">Edit</button>`}</div>
+    ${s.editingSet?.stepId===step.id&&s.editingSet.index===i?`<input id="edit-weight" type="hidden" value="0">
+      <div class="field"><label for="edit-reps">Seconds held</label><input id="edit-reps" type="number" min="1" max="300" value="${esc(set.reps)}"></div>
+      <div class="flexwrap"><button class="btn primary smallbtn" data-action="save-edit-set" data-index="${i}">Save</button>
+      <button class="btn ghost smallbtn" data-action="cancel-edit-set">Cancel</button></div>`:''}</div>`).join('');
+  const edit=s.editingSet?.stepId===step.id?s.editingSet.index:-1;
+  const review=done?`<details class="disclosure set-review" ${edit>=0?'open':''}><summary>Logged holds <span>${done} saved · review/edit</span></summary>
+    <div class="logged-list">${rows}</div><button class="text-link" data-action="undo-set">Undo last hold</button></details>`:'';
+  if(finished)return `${heading}${chips}<div class="finish-exercise"><span class="completecheck">✓</span><h3>Planks complete</h3>${effortMarkup(step)}
+    <button class="btn primary big block" data-action="next">${next?'Next: '+esc(next.title):'Finish workout'} ${icon('arrow')}</button></div>${review}${note}`;
+  if(resting)return `${heading}${chips}${restMarkup(s.rest)}${review}${note}`;
+  return `${heading}${chips}${lastTimeMarkup(step.id)}
+    <div class="timed-hold-panel">
+      <div class="stepindicator">PLANK HOLD TIMER</div>
+      <div class="count" id="clock-display" aria-label="Plank timer">${timer?fmtTime(remaining(timer)):fmtTime(Number(step.draftReps)||30)}</div>
+      ${timer?`<div class="flexwrap">${remaining(timer)>0?`<button class="btn ghost" data-action="toggle-plank-timer">${timer.paused?'Resume':'Pause'}</button>`:''}
+        <button class="btn ghost" data-action="reset-plank-timer">Reset</button></div>
+        <p class="small muted">${remaining(timer)===0?'Hold finished. Record the seconds you actually held.':timer.paused?'Timer paused. Resume when ready.':'Hold steady and breathe normally.'}</p>`
+        :`<button class="btn ghost block" data-action="start-plank-timer">Start ${esc(step.draftReps)}-second timer</button>`}
+    </div>
+    <div class="entrypanel timed-entry">
+      <input id="weight" type="hidden" value="0">
+      <div class="field"><label for="reps">Seconds actually held</label>
+        <div class="quick-number">
+          <button data-action="adjust-set-input" data-field="reps" data-delta="-5" aria-label="Five fewer seconds">−</button>
+          <input id="reps" type="number" min="1" max="300" step="1" inputmode="numeric" value="${esc(step.draftReps)}">
+          <button data-action="adjust-set-input" data-field="reps" data-delta="5" aria-label="Five more seconds">+</button>
+        </div>
+      </div>
+      <button class="btn primary big block save-set-btn" data-action="logset">${icon('check')} Save hold ${idx+1}</button>
+      ${last?`<button class="btn ghost block repeat-set-btn" data-action="repeat-last-set">Repeat last: ${esc(last.reps)} seconds</button>`:''}
+    </div><p class="tiny muted">Record your real hold time. The timer is optional; stop if your form breaks down.</p>
+    ${review}${note}`;
+}
   function strengthMarkup(step){
+    if(timedExercise(step.id))return timedStrengthMarkup(step);
     const setIdx=currentSet(step),finished=setIdx===-1;
     const resting=state.active.rest?.stepId===step.id&&remaining(state.active.rest)>0;
     const edit=state.active.editingSet?.stepId===step.id?state.active.editingSet.index:-1;
@@ -877,7 +926,7 @@
       tag:'reps-rest',renotify:false,icon:'./icon-192.png',
     })).catch(()=>{});}catch{}
   }
-  function tick(){const active=state.active;if(!active)return;const timer=active.rest||active.timer;if(!timer)return;const el=$('#clock-display');if(el)el.textContent=fmtTime(remaining(timer));if(remaining(timer)===0&&!timer.paused){if(active.rest){active.rest=null;save();beep();notifyRestFinished();render();toast('Rest finished — next set');}else if(active.timer&&!active.timer.notified){active.timer.notified=true;save();beep();toast('Time complete! Mark the walk done');}}}
+  function tick(){const active=state.active;if(!active)return;const timer=active.rest||active.timer;if(!timer)return;const el=$('#clock-display');if(el)el.textContent=fmtTime(remaining(timer));if(remaining(timer)===0&&!timer.paused){if(active.rest){active.rest=null;save();beep();notifyRestFinished();render();toast('Rest finished — next set');}else if(active.timer&&!active.timer.notified){active.timer.notified=true;save();beep();toast(timedExercise(active.timer.stepId)?'Hold finished — log your seconds':'Time complete! Mark the walk done');}}}
   function startClock(kind,stepId,secs){const timer={stepId,paused:false,left:secs,until:Date.now()+secs*1000,notified:false};if(kind==='rest')state.active.rest=timer;else state.active.timer=timer;save();render();}
   function toggleClock(kind){const t=state.active?.[kind];if(!t)return;if(t.paused){t.paused=false;t.until=Date.now()+t.left*1000;}else{t.left=remaining(t);t.paused=true;}save();render();}
   function getStepAfter(){const s=state.active;let n=s.stepIndex+1;if(n>=s.steps.length){finishWorkout();return;}s.stepIndex=n;s.rest=null;s.timer=null;save();render();scrollTop();}
@@ -929,15 +978,16 @@
     if(!s||step?.type!=='strength')return false;
     const index=currentSet(step);if(index<0)return false;
     const weight=Number(data.weight),reps=Number(data.reps);
-    if(!Number.isFinite(weight)||weight<0||weight>1000||!Number.isInteger(reps)||reps<1||reps>100)return false;
-    step.sets[index]={weight,reps,completed:true};
+    if(!Number.isFinite(weight)||weight<0||weight>1000||!Number.isInteger(reps)||reps<1||reps>(timedExercise(step.id)?300:100))return false;
+    step.sets[index]={weight:timedExercise(step.id)?0:weight,reps,completed:true};
+    if(timedExercise(step.id))s.timer=null;
     step.draftWeight=weight;step.draftReps=reps;state.weights[step.id]=weight;
     state.planned[step.id]={...state.planned[step.id],weight};
     if(index===step.sets.length-1){step.done=true;save();render();scrollTop();toast('All sets done');}
     else{save();startClock('rest',step.id,restSeconds(step.id));scrollTop();}
     return true;
   }
-  function readSetInput(weightSelector='#weight',repsSelector='#reps'){const step=stepData();if(!step)return null;const weightEl=$(weightSelector),repsEl=$(repsSelector);if(!weightEl||!repsEl)return null;const weight=weightEl.value.trim(),reps=repsEl.value.trim();if(weight===''||!Number.isFinite(Number(weight))||Number(weight)<0||Number(weight)>1000){toast('Enter a valid weight (0 is fine for bodyweight)');weightEl.focus();return null;}if(!Number.isInteger(Number(reps))||Number(reps)<1||Number(reps)>100){toast('Enter a valid repetition count');repsEl.focus();return null;}return{weight:Number(weight),reps:Number(reps)};}
+  function readSetInput(weightSelector='#weight',repsSelector='#reps'){const step=stepData();if(!step)return null;const weightEl=$(weightSelector),repsEl=$(repsSelector);if(!weightEl||!repsEl)return null;const weight=weightEl.value.trim(),reps=repsEl.value.trim();if(weight===''||!Number.isFinite(Number(weight))||Number(weight)<0||Number(weight)>1000){toast('Enter a valid weight (0 is fine for bodyweight)');weightEl.focus();return null;}if(!Number.isInteger(Number(reps))||Number(reps)<1||Number(reps)>(timedExercise(step.id)?300:100)){toast(timedExercise(step.id)?'Enter a hold from 1–300 seconds':'Enter a valid repetition count');repsEl.focus();return null;}return{weight:Number(weight),reps:Number(reps)};}
   function handleAction(action,el){let s=state.active,step=stepData();
     if(action==='back-plan'||action==='save-exit'){
       if(s){
@@ -1049,7 +1099,7 @@
       const delta=Number(el.dataset.delta),input=$('#'+field);
       if(!input||!Number.isFinite(delta))return;
       const current=Number(input.value)||0;
-      const next=field==='reps'?Math.min(100,Math.max(1,current+delta)):
+      const next=field==='reps'?Math.min(timedExercise(step.id)?300:100,Math.max(1,current+delta)):
         Math.min(1000,Math.max(0,Math.round((current+delta)*100)/100));
       input.value=String(next);
       if(field==='weight')step.draftWeight=next;
@@ -1084,6 +1134,15 @@
     if(action==='start-tread'&&s&&step?.type==='tread')return startClock('timer',step.id,step.minutes*60);
     if(action==='toggle-tread'&&s)return toggleClock('timer');
     if(action==='restart-tread'&&s&&step?.type==='tread')return startClock('timer',step.id,step.minutes*60);
+    if(action==='start-plank-timer'&&s&&step?.type==='strength'&&timedExercise(step.id)&&!s.rest){
+      const duration=Number($('#reps')?.value??step.draftReps);
+      if(!Number.isInteger(duration)||duration<1||duration>300){toast('Enter a hold duration from 1 to 300 seconds');return;}
+      step.draftReps=duration;startClock('timer',step.id,duration);return;
+    }
+    if(action==='toggle-plank-timer'&&s&&s.timer?.stepId===step?.id&&timedExercise(step.id))return toggleClock('timer');
+    if(action==='reset-plank-timer'&&s&&s.timer?.stepId===step?.id&&timedExercise(step.id)){
+      s.timer=null;save();render();return;
+    }
     if(action==='walk-effort'&&s&&step?.id==='cardio'){
       const effort=el.dataset.effort;
       if(!['easy','good','hard'].includes(effort))return;
