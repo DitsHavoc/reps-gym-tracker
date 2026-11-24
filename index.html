@@ -739,6 +739,8 @@
     const resting=state.active.rest?.stepId===step.id&&remaining(state.active.rest)>0;
     const edit=state.active.editingSet?.stepId===step.id?state.active.editingSet.index:-1;
     const unit=EXERCISES[step.id].unit,done=step.sets.filter(x=>x.completed).length;
+    const lastSet=step.sets.slice().reverse().find(x=>x.completed);const noteMarkup=exerciseNoteMarkup(step.id);
+    const kgStep=EXERCISES[step.id].unit==='kg/hand'?1:2.5;
     const rows=step.sets.map((set,i)=>{
       if(!set.completed)return '';
       return `<div class="loggedset"><div class="row"><div><span class="stepindicator">SET ${i+1}</span><div class="setresult">${esc(fmtN(Number(set.weight)))} ${esc(unit)} <span>×</span> ${esc(set.reps)} reps</div></div>
@@ -757,10 +759,29 @@
           <button type="button" data-action="increase-active-sets" aria-label="Add a set" ${step.targetSets>=6?'disabled':''}>+</button>
         </div>
       </div>`;
-    if(finished){const next=state.active.steps[state.active.stepIndex+1];return `${heading}${chips}<div class="finish-exercise"><span class="completecheck">✓</span><h3>Exercise complete</h3>${effortMarkup(step)}<button class="btn primary big block" data-action="next">${next?'Next: '+esc(next.title):'Finish workout'} ${icon('arrow')}</button></div>${review}`;}
-    if(resting)return `${heading}${chips}${restMarkup(state.active.rest)}<p class="small muted center-note">Set ${setIdx} saved. Your next set is ready when the timer finishes.</p>${review}`;
-    return `${heading}${chips}${lastTimeMarkup(step.id)}<div class="entrypanel"><div class="stepgrid"><div class="field"><label for="weight">Weight (${esc(unit)})</label><input id="weight" type="number" min="0" max="1000" step="0.5" inputmode="decimal" value="${esc(step.draftWeight)}"></div><div class="field"><label for="reps">Reps completed</label><input id="reps" type="number" min="1" max="100" step="1" inputmode="numeric" value="${esc(step.draftReps)}"></div></div><button class="btn primary big block save-set-btn" data-action="logset">${icon('check')} Save set ${setIdx+1}</button></div>
-      ${strengthHistory(step.id).length?`<div class="mini-coach-tip"><strong>Coach:</strong> ${esc(coachAdvice(step.id).label)} <button data-nav="coach" class="text-link">See why</button></div>`:''}${review}`;
+    if(finished){const next=state.active.steps[state.active.stepIndex+1];return `${heading}${chips}<div class="finish-exercise"><span class="completecheck">✓</span><h3>Exercise complete</h3>${effortMarkup(step)}<button class="btn primary big block" data-action="next">${next?'Next: '+esc(next.title):'Finish workout'} ${icon('arrow')}</button></div>${review}${noteMarkup}`;}
+    if(resting)return `${heading}${chips}${restMarkup(state.active.rest)}<p class="small muted center-note">Set ${setIdx} saved. Your next set is ready when the timer finishes.</p>${review}${noteMarkup}`;
+    return `${heading}${chips}${lastTimeMarkup(step.id)}
+      <div class="entrypanel">
+        <div class="stepgrid">
+          <div class="field"><label for="weight">Weight (${esc(unit)})</label>
+            <div class="quick-number"><button type="button" data-action="adjust-set-input" data-field="weight" data-delta="-${kgStep}" aria-label="Reduce weight by ${kgStep} kg">−</button>
+              <input id="weight" type="number" min="0" max="1000" step="0.5" inputmode="decimal" value="${esc(step.draftWeight)}" aria-label="Weight in ${esc(unit)}">
+              <button type="button" data-action="adjust-set-input" data-field="weight" data-delta="${kgStep}" aria-label="Increase weight by ${kgStep} kg">+</button>
+            </div>
+          </div>
+          <div class="field"><label for="reps">Reps completed</label>
+            <div class="quick-number"><button type="button" data-action="adjust-set-input" data-field="reps" data-delta="-1" aria-label="One fewer repetition">−</button>
+              <input id="reps" type="number" min="1" max="100" step="1" inputmode="numeric" value="${esc(step.draftReps)}" aria-label="Repetitions completed">
+              <button type="button" data-action="adjust-set-input" data-field="reps" data-delta="1" aria-label="One more repetition">+</button>
+            </div>
+          </div>
+        </div>
+        <button class="btn primary big block save-set-btn" data-action="logset">${icon('check')} Save set ${setIdx+1}</button>
+        ${lastSet?`<button class="btn ghost block repeat-set-btn" data-action="repeat-last-set">Repeat last: ${fmtN(Number(lastSet.weight))} ${esc(unit)} × ${esc(lastSet.reps)} reps</button>`:''}
+      </div>
+      ${strengthHistory(step.id).length?`<div class="mini-coach-tip"><strong>Coach:</strong> ${esc(coachAdvice(step.id).label)} <button data-nav="coach" class="text-link">See why</button></div>`:''}
+      ${review}${noteMarkup}`;
   }
   function remaining(timer){if(!timer)return 0;return timer.paused?timer.left:Math.max(0,Math.ceil((timer.until-Date.now())/1000));}
   function restMarkup(r){
@@ -771,7 +792,10 @@
         <button class="btn ghost" data-action="add-rest">+30 sec</button>
         <button class="btn primary" data-action="skip-rest">Ready now</button>
       </div>
-      <p class="tiny muted" style="margin:12px 0 0">Need longer? Add 30 seconds. Rest until you can lift with good technique.</p>
+      <div class="rest-presets"><span>Set remaining rest</span><div role="group" aria-label="Rest duration presets">
+        ${[60,90,120].map(n=>`<button type="button" class="rest-preset" data-action="preset-rest" data-seconds="${n}">${n}s</button>`).join('')}
+      </div></div>
+      <p class="tiny muted" style="margin:10px 0 0">Take longer if you need it. Rest until you can lift with good technique.</p>
     </div>`;
   }
   function treadMarkup(step){
@@ -853,6 +877,19 @@
   function startWorkout(variant){
     if(!state.active){if(!PLANS[variant])return;state.active=newSession(variant);save();}
     view='today';render();scrollTop();
+  }
+  function saveActiveSet(data){
+    const s=state.active,step=stepData();
+    if(!s||step?.type!=='strength')return false;
+    const index=currentSet(step);if(index<0)return false;
+    const weight=Number(data.weight),reps=Number(data.reps);
+    if(!Number.isFinite(weight)||weight<0||weight>1000||!Number.isInteger(reps)||reps<1||reps>100)return false;
+    step.sets[index]={weight,reps,completed:true};
+    step.draftWeight=weight;step.draftReps=reps;state.weights[step.id]=weight;
+    state.planned[step.id]={...state.planned[step.id],weight};
+    if(index===step.sets.length-1){step.done=true;save();render();scrollTop();toast('All sets done');}
+    else{save();startClock('rest',step.id,restSeconds(step.id));scrollTop();}
+    return true;
   }
   function readSetInput(weightSelector='#weight',repsSelector='#reps'){const step=stepData();if(!step)return null;const weightEl=$(weightSelector),repsEl=$(repsSelector);if(!weightEl||!repsEl)return null;const weight=weightEl.value.trim(),reps=repsEl.value.trim();if(weight===''||!Number.isFinite(Number(weight))||Number(weight)<0||Number(weight)>1000){toast('Enter a valid weight (0 is fine for bodyweight)');weightEl.focus();return null;}if(!Number.isInteger(Number(reps))||Number(reps)<1||Number(reps)>100){toast('Enter a valid repetition count');repsEl.focus();return null;}return{weight:Number(weight),reps:Number(reps)};}
   function handleAction(action,el){let s=state.active,step=stepData();
@@ -957,9 +994,36 @@
       state.planned[step.id]={...state.planned[step.id],weight:data.weight};
       save();render();toast('Set updated');return;
     }
-    if(action==='logset'&&s&&step?.type==='strength') {const data=readSetInput();if(!data)return;const idx=currentSet(step);if(idx<0)return;step.sets[idx]={...data,completed:true};step.draftWeight=data.weight;step.draftReps=data.reps;state.weights[step.id]=data.weight;state.planned[step.id]={...state.planned[step.id],weight:data.weight};if(idx===step.sets.length-1){step.done=true;save();render();scrollTop();toast('All sets done');}else{save();startClock('rest',step.id,restSeconds(step.id));scrollTop();}return;}
+    if(action==='adjust-set-input'&&s&&step?.type==='strength'&&!s.rest){
+      const field=el.dataset.field;
+      if(!['weight','reps'].includes(field))return;
+      const delta=Number(el.dataset.delta),input=$('#'+field);
+      if(!input||!Number.isFinite(delta))return;
+      const current=Number(input.value)||0;
+      const next=field==='reps'?Math.min(100,Math.max(1,current+delta)):
+        Math.min(1000,Math.max(0,Math.round((current+delta)*100)/100));
+      input.value=String(next);
+      if(field==='weight')step.draftWeight=next;
+      else step.draftReps=next;
+      save();return;
+    }
+    if(action==='repeat-last-set'&&s&&step?.type==='strength'&&!s.rest){
+      const prior=step.sets.slice().reverse().find(x=>x.completed);
+      if(prior)saveActiveSet(prior);
+      return;
+    }
+    if(action==='logset'&&s&&step?.type==='strength'){
+      const data=readSetInput();if(data)saveActiveSet(data);return;
+    }
     if(action==='undo-set'&&s&&step?.type==='strength'){s.editingSet=null;const idx=step.sets.map((x,i)=>x.completed?i:-1).filter(x=>x>=0).pop();if(idx===undefined)return;step.sets[idx].completed=false;step.done=false;s.rest=null;save();render();return;}
     if(action==='next'&&s)return getStepAfter();
+    if(action==='preset-rest'&&s&&s.rest){
+      const seconds=Number(el.dataset.seconds);
+      if(![60,90,120].includes(seconds))return;
+      if(s.rest.paused)s.rest.left=seconds;
+      else s.rest.until=Date.now()+seconds*1000;
+      save();render();return;
+    }
     if(action==='add-rest'&&s&&s.rest){
       const r=s.rest;
       if(r.paused)r.left=Math.min(1200,r.left+30);
@@ -1035,7 +1099,13 @@
       save();render();toast('Workout target saved');return;
     }
     if(el.matches('[data-weight]')){const val=el.value.trim();if(val!==''&&(!Number.isFinite(Number(val))||Number(val)<0||Number(val)>1000)){toast('Please enter a valid weight');render();return;}state.weights[el.dataset.weight]=val===''?'':Number(val);save();return;}if(el.matches('#importFile')&&el.files?.length){try{const raw=await el.files[0].text(),obj=JSON.parse(raw);if(obj.app!=='REPS'||!Array.isArray(obj.sessions)||!obj.settings||!obj.weights){toast('Not a valid REPS backup');return;}if(!confirm('Importing will replace all current progress on this device. Continue?'))return;const d=DEFAULT();state={settings:{...d.settings,...Object.fromEntries(Object.entries(obj.settings).filter(([key])=>key!=='comeback'))},weights:{...d.weights,...obj.weights},planned:obj.planned&&typeof obj.planned==='object'?obj.planned:{},planSets:{A:{...(obj.planSets?.A||{})},B:{...(obj.planSets?.B||{})}},threeSetDefaultsApplied:obj.threeSetDefaultsApplied===true,checkins:obj.checkins&&typeof obj.checkins==='object'?obj.checkins:{},proteinDays:obj.proteinDays&&typeof obj.proteinDays==='object'?obj.proteinDays:{},sessions:obj.sessions,measurements:Array.isArray(obj.measurements)?obj.measurements:[],active:obj.active&&Array.isArray(obj.active.steps)?obj.active:null};upgradeThreeSetDefaults();save();render();toast('Backup restored');}catch{toast('Could not read this backup file');}}});
-  document.addEventListener('input',e=>{const step=stepData();if(state.active&&step?.type==='strength'){if(e.target.id==='weight'){step.draftWeight=e.target.value;save();}if(e.target.id==='reps'){step.draftReps=e.target.value;save();}}});
+  document.addEventListener('input',e=>{
+    if(e.target.matches('[data-exercise-note]')){
+      const id=e.target.dataset.exerciseNote;
+      if(EXERCISES[id]){state.exerciseNotes[id]=e.target.value.slice(0,240);save();}
+      return;
+    }
+    const step=stepData();if(state.active&&step?.type==='strength'){if(e.target.id==='weight'){step.draftWeight=e.target.value;save();}if(e.target.id==='reps'){step.draftReps=e.target.value;save();}}});
   window.addEventListener('hashchange',()=>{const v=location.hash.slice(1);if(['today','plan','coach','history','settings'].includes(v)){view=v;render();}});
   document.addEventListener('visibilitychange',()=>syncWakeLock());
   if(['today','plan','coach','history','settings'].includes(location.hash.slice(1)))view=location.hash.slice(1);
