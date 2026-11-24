@@ -232,11 +232,11 @@
     pulldown: { name:'Lat pulldown', gear:'Lat pulldown machine', hint:'Pull towards your upper chest; avoid leaning back sharply.', rest:90, base:3, reps:10, weight:45, unit:'kg' },
     row: { name:'Seated row', gear:'Plate-loaded row or cable row', hint:'Pull elbows back and pause; keep your torso stable.', rest:90, base:3, reps:10, weight:'', unit:'kg' },
     db_row: { name:'One-arm dumbbell row', gear:'One dumbbell and bench (each side)', hint:'Support your free hand on the bench; pull without twisting. Log reps per side and weight per hand.', rest:90, base:3, reps:10, weight:'', unit:'kg/hand' },
-    rdl: { name:'Dumbbell Romanian deadlift', gear:'Dumbbells (weight per hand)', hint:'Soft knees, hinge at the hips and keep dumbbells close to your legs. Ask a gym instructor to check your form first.', rest:90, base:2, reps:10, weight:'', unit:'kg/hand' },
-    rear_delt: { name:'Rear deltoid fly', gear:'Pec deck — facing inwards', hint:'Small, controlled movement. Focus on the back of your shoulders.', rest:60, base:2, reps:10, weight:35, unit:'kg' },
-    pec_fly: { name:'Pec fly', gear:'Pec deck — facing outwards', hint:'Control the return and avoid forcing a deep shoulder stretch.', rest:60, base:2, reps:10, weight:35, unit:'kg' },
-    triceps: { name:'Rope triceps pushdown', gear:'Cable machine + rope', hint:'Keep elbows close to your sides; move through the elbows.', rest:60, base:2, reps:10, weight:'', unit:'kg' },
-    curls: { name:'Dumbbell bicep curls', gear:'Dumbbells (weight per hand)', hint:'Elbows still, no swinging. Choose a weight you can control.', rest:60, base:2, reps:10, weight:'', unit:'kg/hand' }
+    rdl: { name:'Dumbbell Romanian deadlift', gear:'Dumbbells (weight per hand)', hint:'Soft knees, hinge at the hips and keep dumbbells close to your legs. Ask a gym instructor to check your form first.', rest:90, base:3, reps:10, weight:'', unit:'kg/hand' },
+    rear_delt: { name:'Rear deltoid fly', gear:'Pec deck — facing inwards', hint:'Small, controlled movement. Focus on the back of your shoulders.', rest:60, base:3, reps:10, weight:35, unit:'kg' },
+    pec_fly: { name:'Pec fly', gear:'Pec deck — facing outwards', hint:'Control the return and avoid forcing a deep shoulder stretch.', rest:60, base:3, reps:10, weight:35, unit:'kg' },
+    triceps: { name:'Rope triceps pushdown', gear:'Cable machine + rope', hint:'Keep elbows close to your sides; move through the elbows.', rest:60, base:3, reps:10, weight:'', unit:'kg' },
+    curls: { name:'Dumbbell bicep curls', gear:'Dumbbells (weight per hand)', hint:'Elbows still, no swinging. Choose a weight you can control.', rest:60, base:3, reps:10, weight:'', unit:'kg/hand' }
   };
   const PLANS = {
     A:['leg_press','chest_press','pulldown','rdl','rear_delt','triceps'],
@@ -244,9 +244,9 @@
   };
   const SWAPS={chest_press:'db_chest_press',db_chest_press:'chest_press',row:'db_row',db_row:'row'};
   const DEFAULT = () => ({
-    settings:{ comeback:true, warmup:6, cardio:15, incline:2, bigRest:90, smallRest:60, sound:true, proteinCheck:false, restAlerts:false },
+    settings:{ warmup:6, cardio:15, incline:2, bigRest:90, smallRest:60, sound:true, proteinCheck:false, restAlerts:false },
     weights:Object.fromEntries(Object.entries(EXERCISES).map(([id,x]) => [id,x.weight])),
-    planned:{}, planSets:{A:{},B:{}}, checkins:{}, proteinDays:{}, sessions:[], measurements:[], active:null
+    planned:{}, planSets:{A:{},B:{}}, threeSetDefaultsApplied:true, checkins:{}, proteinDays:{}, sessions:[], measurements:[], active:null
   });
   function load() {
     let saved;
@@ -254,10 +254,11 @@
     const d=DEFAULT();
     if(!saved || typeof saved!=='object')return d;
     return {
-      settings:{...d.settings,...(saved.settings||{})},
+      settings:{...d.settings,...Object.fromEntries(Object.entries(saved.settings||{}).filter(([key])=>key!=='comeback'))},
       weights:{...d.weights,...(saved.weights||{})},
       planned:saved.planned&&typeof saved.planned==='object'?saved.planned:{},
       planSets:{A:{...(saved.planSets?.A||{})},B:{...(saved.planSets?.B||{})}},
+      threeSetDefaultsApplied:saved.threeSetDefaultsApplied===true,
       checkins:saved.checkins&&typeof saved.checkins==='object'?saved.checkins:{},
       proteinDays:saved.proteinDays&&typeof saved.proteinDays==='object'?saved.proteinDays:{},
       sessions:Array.isArray(saved.sessions)?saved.sessions:[],
@@ -288,8 +289,7 @@
   function exerciseSets(id, variant){
     const chosen=Number(state.planSets?.[variant]?.[id]);
     if(Number.isInteger(chosen)&&chosen>=1&&chosen<=6)return chosen;
-    const ex=EXERCISES[id];
-    return state.settings.comeback&&ex.base>=3?2:ex.base;
+    return 3;
   }
   function targetReps(id){
     const n=Number(state.planned?.[id]?.reps);
@@ -359,7 +359,6 @@
     const excellent=safe&&recent.every(x=>x.step.sets.every(set=>Number(set.reps)>=target+2));
     const easy=safe&&recent.every(x=>x.step.effort==='easy');
     if(excellent||easy){
-      if(state.settings.comeback)return {...base,status:'build',label:'Strong comeback',text:'Two consistent workouts at '+fmtN(load)+' '+unit+'. Stay at this weight during Comeback mode; increase only after you are recovering comfortably.',last};
       return {...base,status:'ready',label:'Ready to increase',text:'Two consistent full workouts at '+fmtN(load)+' '+unit+'. If your form is controlled, try the smallest available weight increase next time; it is optional.',last};
     }
     if(step.effort==='easy'&&history.length===1)return {...base,status:'build',label:'Looking promising',text:'That weight felt easy. Repeat it for another complete session before moving up.',last};
@@ -380,7 +379,7 @@
     const reps=prev.sets.map(set=>set.reps).join(' / ');
     const summary=same?`${fmtN(Number(prev.sets[0].weight))} ${unit} · ${reps} reps`
       :prev.sets.map(set=>`${fmtN(Number(set.weight))} × ${set.reps}`).join(' · ')+' '+unit;
-    const cautious=state.settings.comeback||readiness().state==='caution'||prev.effort==='hard';
+    const cautious=readiness().state==='caution'||prev.effort==='hard';
     const goal=cautious?'Today: aim to match those controlled sets, or do less if needed.'
       :'Today: match last time; add a rep only if it feels comfortable.';
     return `<div class="last-time"><div class="row"><strong>Last time</strong><span class="tiny muted">${fmtDate(prev.date)}</span></div>
@@ -567,7 +566,7 @@
           <div class="field"><label for="plan-reps-${id}">Reps</label><input id="plan-reps-${id}" data-plan-reps="${id}" type="number" min="1" max="100" step="1" inputmode="numeric" value="${esc(targetReps(id))}"></div>
         </div>
       </div>`).join('')}
-      <p class="tiny muted" style="margin:12px 0 0">Changes apply to your next workout, not one already in progress. Custom set counts take priority over Comeback mode.</p>
+      <p class="tiny muted" style="margin:12px 0 0">3 sets are the default for every strength exercise. You can still customise each exercise here or while training.</p>
     </div>`;
   }
   function planView(){
@@ -609,17 +608,24 @@
     step.done=step.sets.every(x=>x.completed);
     return true;
   }
-  function syncActiveFromComeback(){
-    const s=state.active;
-    if(!s||state.settings.comeback)return false;
-    let changed=false;
-    for(const step of s.steps){
-      if(step.type!=='strength'||step.done||step.manualSets)continue;
-      if(EXERCISES[step.id]?.base<3||state.planSets?.[s.variant]?.[step.id]!==undefined)continue;
-      // Reconcile older, still-active sessions started with Comeback mode enabled.
-      if(step.targetSets===2&&step.sets.length===2)changed=resizeStrengthSets(step,3)||changed;
+  function upgradeThreeSetDefaults(){
+    // One-time migration. Existing users start with 3 sets on both A and B.
+    // Keep finished workout history and previously completed sets intact.
+    if(state.threeSetDefaultsApplied)return false;
+    for(const variant of ['A','B']){
+      state.planSets[variant]=Object.fromEntries(PLANS[variant].map(id=>[id,3]));
     }
-    return changed;
+    state.threeSetDefaultsApplied=true;
+    const active=state.active;
+    if(active){
+      for(let i=0;i<active.steps.length;i++){
+        const step=active.steps[i];
+        if(step.type!=='strength'||step.targetSets>=3)continue;
+        if(step.done&&i!==active.stepIndex)continue;
+        if(resizeStrengthSets(step,3))step.manualSets=true;
+      }
+    }
+    return true;
   }
 
   function liveView(){
@@ -753,7 +759,6 @@
      ${state.measurements.length?`<div class="divider"></div>${state.measurements.slice().reverse().map(x=>`<div class="row small" style="padding:8px 0"><span class="muted">${fmtDate(x.date)}</span><strong>${x.weight?esc(x.weight)+' kg':''}${x.weight&&x.waist?' · ':''}${x.waist?esc(x.waist)+' cm waist':''}</strong></div>`).join('')}`:''}</div></details>`;}
   function historyItem(s){const expanded=expandedHistory===s.id;const sets=s.steps.filter(x=>x.type==='strength').reduce((v,x)=>v+x.sets.filter(y=>y.completed).length,0);return `<button class="history-item" data-history="${esc(s.id)}" aria-expanded="${expanded}"><div class="row"><strong>Workout ${esc(s.variant)} ${s.partial?'<span class="tiny muted">(partial)</span>':''}</strong><span class="badge">${sets} sets</span></div><div class="small muted" style="margin-top:7px">${fmtDate(s.date)} · ${Math.max(1,Math.round(((s.finishedAt||s.startedAt)-s.startedAt)/60000))} min · ${fmtN(totalVolume(s))} kg total volume</div></button>${expanded?`<div class="history-details"><table><thead><tr><th>Exercise</th><th>Weight</th><th>Reps</th></tr></thead><tbody>${s.steps.map(x=>x.type==='strength'?x.sets.filter(t=>t.completed).map(t=>`<tr><td>${esc(x.title)}</td><td>${esc(t.weight)} kg</td><td>${esc(t.reps)}</td></tr>`).join(''):`<tr><td>${esc(x.title)}</td><td colspan="2">${x.done?(x.actual?.minutes??x.minutes)+' min'+(x.id==='cardio'?', '+(x.actual?.incline??x.incline)+'% incline'+(x.actual?.speed?' @ '+x.actual.speed+' km/h':''):''):'Not completed'}</td></tr>`).join('')}</tbody></table><button class="btn danger smallbtn" style="margin-top:12px" data-action="delete-history" data-id="${esc(s.id)}">Delete this workout</button></div>`:''}`;}
   function settingsView(){return `<p class="eyebrow">Make it yours</p><h1>Settings.</h1><p class="small muted">Your timer, weights and training phase. Changes are saved automatically.</p><div class="panel"><h3>Training</h3>
-    ${settingSwitch('Comeback phase','Use 2 sets for big exercises unless you have set a custom number in Workout A or B.','comeback',state.settings.comeback)}
     ${settingNumber('Rest after big exercises','bigRest',state.settings.bigRest,'seconds',30,300,15)}
     ${settingNumber('Rest after smaller exercises','smallRest',state.settings.smallRest,'seconds',30,300,15)}
     ${settingNumber('Warm-up treadmill','warmup',state.settings.warmup,'minutes',3,20,1)}
@@ -934,7 +939,7 @@
   document.addEventListener('click',e=>{const n=e.target.closest('[data-nav]');if(n){e.preventDefault();if(view==='today'&&state.active&&n.dataset.nav!=='today'){for(const kind of ['rest','timer']){const t=state.active[kind];if(t&&!t.paused){t.left=remaining(t);t.paused=true;}}save();}view=n.dataset.nav;if(view!=='history')justFinishedId=null;render();scrollTop();return;}const p=e.target.closest('[data-plan]');if(p){planTab=p.dataset.plan;render();return;}const h=e.target.closest('[data-history]');if(h){expandedHistory=expandedHistory===h.dataset.history?null:h.dataset.history;render();return;}const a=e.target.closest('[data-action]');if(a){handleAction(a.dataset.action,a);return;}});
   document.addEventListener('change',async e=>{const el=e.target;if(el.matches('#progress-exercise')){
     if(EXERCISES[el.value]){chartExercise=el.value;render();}return;
-  }if(el.matches('[data-setting]')){const key=el.dataset.setting;const isBool=el.type==='checkbox';let value=isBool?el.checked:Number(el.value);if(!isBool){const min=Number(el.min),max=Number(el.max);if(!Number.isFinite(value))value=state.settings[key];value=Math.min(max,Math.max(min,value));}state.settings[key]=value;if(key==='comeback'&&!value)syncActiveFromComeback();save();render();toast('Settings saved');return;}if(el.matches('[data-plan-sets]')){
+  }if(el.matches('[data-setting]')){const key=el.dataset.setting;const isBool=el.type==='checkbox';let value=isBool?el.checked:Number(el.value);if(!isBool){const min=Number(el.min),max=Number(el.max);if(!Number.isFinite(value))value=state.settings[key];value=Math.min(max,Math.max(min,value));}state.settings[key]=value;save();render();toast('Settings saved');return;}if(el.matches('[data-plan-sets]')){
       const id=el.dataset.planSets,variant=el.dataset.variant;
       const raw=el.value.trim(),n=Number(raw);
       if(!PLANS[variant]?.includes(id)||raw===''||!Number.isInteger(n)||n<1||n>6){
@@ -954,11 +959,11 @@
       state.planned[id]={...(state.planned[id]||{}),[isWeight?'weight':'reps']:isWeight&&val===''?'':n};
       save();render();toast('Workout target saved');return;
     }
-    if(el.matches('[data-weight]')){const val=el.value.trim();if(val!==''&&(!Number.isFinite(Number(val))||Number(val)<0||Number(val)>1000)){toast('Please enter a valid weight');render();return;}state.weights[el.dataset.weight]=val===''?'':Number(val);save();return;}if(el.matches('#importFile')&&el.files?.length){try{const raw=await el.files[0].text(),obj=JSON.parse(raw);if(obj.app!=='REPS'||!Array.isArray(obj.sessions)||!obj.settings||!obj.weights){toast('Not a valid REPS backup');return;}if(!confirm('Importing will replace all current progress on this device. Continue?'))return;const d=DEFAULT();state={settings:{...d.settings,...obj.settings},weights:{...d.weights,...obj.weights},planned:obj.planned&&typeof obj.planned==='object'?obj.planned:{},planSets:{A:{...(obj.planSets?.A||{})},B:{...(obj.planSets?.B||{})}},checkins:obj.checkins&&typeof obj.checkins==='object'?obj.checkins:{},proteinDays:obj.proteinDays&&typeof obj.proteinDays==='object'?obj.proteinDays:{},sessions:obj.sessions,measurements:Array.isArray(obj.measurements)?obj.measurements:[],active:obj.active&&Array.isArray(obj.active.steps)?obj.active:null};save();render();toast('Backup restored');}catch{toast('Could not read this backup file');}}});
+    if(el.matches('[data-weight]')){const val=el.value.trim();if(val!==''&&(!Number.isFinite(Number(val))||Number(val)<0||Number(val)>1000)){toast('Please enter a valid weight');render();return;}state.weights[el.dataset.weight]=val===''?'':Number(val);save();return;}if(el.matches('#importFile')&&el.files?.length){try{const raw=await el.files[0].text(),obj=JSON.parse(raw);if(obj.app!=='REPS'||!Array.isArray(obj.sessions)||!obj.settings||!obj.weights){toast('Not a valid REPS backup');return;}if(!confirm('Importing will replace all current progress on this device. Continue?'))return;const d=DEFAULT();state={settings:{...d.settings,...Object.fromEntries(Object.entries(obj.settings).filter(([key])=>key!=='comeback'))},weights:{...d.weights,...obj.weights},planned:obj.planned&&typeof obj.planned==='object'?obj.planned:{},planSets:{A:{...(obj.planSets?.A||{})},B:{...(obj.planSets?.B||{})}},threeSetDefaultsApplied:obj.threeSetDefaultsApplied===true,checkins:obj.checkins&&typeof obj.checkins==='object'?obj.checkins:{},proteinDays:obj.proteinDays&&typeof obj.proteinDays==='object'?obj.proteinDays:{},sessions:obj.sessions,measurements:Array.isArray(obj.measurements)?obj.measurements:[],active:obj.active&&Array.isArray(obj.active.steps)?obj.active:null};upgradeThreeSetDefaults();save();render();toast('Backup restored');}catch{toast('Could not read this backup file');}}});
   document.addEventListener('input',e=>{const step=stepData();if(state.active&&step?.type==='strength'){if(e.target.id==='weight'){step.draftWeight=e.target.value;save();}if(e.target.id==='reps'){step.draftReps=e.target.value;save();}}});
   window.addEventListener('hashchange',()=>{const v=location.hash.slice(1);if(['today','plan','coach','history','settings'].includes(v)){view=v;render();}});
   if(['today','plan','coach','history','settings'].includes(location.hash.slice(1)))view=location.hash.slice(1);
-  if(syncActiveFromComeback())save();
+  if(upgradeThreeSetDefaults())save();
   render();timerTick=setInterval(tick,300);
   if('serviceWorker' in navigator && location.protocol.startsWith('http')) navigator.serviceWorker.register('./sw.js').catch(()=>{});
   </script>
