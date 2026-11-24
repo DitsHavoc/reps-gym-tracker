@@ -216,6 +216,37 @@
     .rest-actions [data-action="skip-rest"]{grid-column:1/-1;min-height:52px;font-size:15px}
     @media(min-width:430px){.rest-actions{grid-template-columns:1fr 1fr 1.2fr}.rest-actions [data-action="skip-rest"]{grid-column:auto}}
 
+
+    /* Small, thumb-friendly controls without oversized icons. */
+    .quick-number{display:flex;align-items:stretch;gap:3px;min-width:0;background:#101c15;border:1px solid #627564;border-radius:12px;padding:3px}
+    .quick-number button{flex:0 0 30px;min-width:30px;border:0;background:#2a4030;color:#c2f270;border-radius:9px;font-size:21px;font-weight:700;line-height:1;min-height:52px}
+    .quick-number button:active{background:#405d42}
+    .quick-number input{min-width:0;flex:1;width:100%;height:52px!important;padding:5px 1px!important;border:0!important;background:transparent!important;box-shadow:none!important;font-size:clamp(18px,5vw,22px)!important}
+    .quick-number input::-webkit-inner-spin-button,.quick-number input::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
+    .repeat-set-btn{min-height:44px;margin-top:10px;font-size:13px;border:1px solid #507252!important;background:#233529!important;color:#e0f6cf!important}
+    .rest-presets{border-top:1px solid #55775d;margin-top:16px;padding-top:12px}
+    .rest-presets>span{display:block;font-size:11px;color:#b4c7b7;margin-bottom:9px}
+    .rest-presets>div{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+    .rest-preset{min-height:41px;border:1px solid #71916e;color:#f1faed;background:#264831;border-radius:9px;font-weight:780;font-size:13px}
+    .rest-preset:active{background:#3d6341}
+    .exercise-notes{background:#1b2c21;border:1px solid #3e5842;border-radius:13px;margin-top:12px;padding:0}
+    .exercise-notes summary{display:flex;align-items:center;justify-content:space-between;cursor:pointer;list-style:none;padding:14px;font-size:13px;font-weight:750;color:#ecf8e5}
+    .exercise-notes summary::-webkit-details-marker{display:none}
+    .exercise-notes[open] summary{border-bottom:1px solid #3e5842}
+    .exercise-notes label,.exercise-notes>span{display:block;margin:10px 13px 6px}
+    .exercise-notes textarea{box-sizing:border-box;display:block;margin:8px 12px;width:calc(100% - 24px);min-height:78px;border:1px solid #658066;background:#101f16;color:#f5fff2;border-radius:10px;padding:10px 12px;font:inherit;font-size:14px;resize:vertical}
+    .exercise-notes>span{padding-bottom:6px}
+    .backup-nudge{border:1px solid #77734d;background:#303324;border-radius:14px;padding:15px;margin:12px 0}
+    .backup-nudge strong{font-size:14px}
+    .backup-nudge p{margin:7px 0 13px}
+    .backup-nudge .btn{min-height:40px;font-size:12px}
+    .workout-summary-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;margin:14px 0}
+    .workout-summary-grid>div{background:#1b3022;border:1px solid #4e7855;border-radius:12px;padding:12px}
+    .workout-summary-grid strong{font-size:25px;font-weight:850;color:#daf4b5;display:block}
+    .workout-summary-grid span{font-size:11px;color:#c8d9c5}
+    .summary-best{font-size:12px;line-height:1.6;padding:10px 0;margin:0}
+    @media(max-width:365px){.quick-number button{flex-basis:26px;min-width:26px}.quick-number input{font-size:18px!important}.quick-number{gap:1px}.workout-summary-grid strong{font-size:22px}}
+
     @media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important;transition:none!important}}
   </style>
 </head>
@@ -956,6 +987,9 @@
       }catch{toast('Notification permission unavailable');}
       return;
     }
+    if(action==='backup-later'){
+      state.backupRemindedAt=Date.now();save();render();return;
+    }
     if(action==='toggle-protein'){
       if(!state.settings.proteinCheck)return;
       const date=localDate();
@@ -1066,12 +1100,15 @@
       if(action==='share-backup'&&navigator.share&&typeof File!=='undefined'){
         const file=new File([data],filename,{type:'application/json'});
         if(!navigator.canShare||navigator.canShare({files:[file]})){
-          navigator.share({files:[file],title:'REPS workout backup'}).catch(()=>toast('Sharing cancelled — no data changed'));
+          navigator.share({files:[file],title:'REPS workout backup'}).then(()=>{
+            state.lastBackupAt=Date.now();save();render();
+          }).catch(()=>toast('Sharing cancelled — no data changed'));
           return;
         }
       }
       const blob=new Blob([data],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');
       a.href=url;a.download=filename;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+      state.lastBackupAt=Date.now();save();render();
       toast(action==='share-backup'?'Downloaded backup — you can upload it to Drive':'Backup downloaded');return;
     }
   }
@@ -1098,7 +1135,9 @@
       state.planned[id]={...(state.planned[id]||{}),[isWeight?'weight':'reps']:isWeight&&val===''?'':n};
       save();render();toast('Workout target saved');return;
     }
-    if(el.matches('[data-weight]')){const val=el.value.trim();if(val!==''&&(!Number.isFinite(Number(val))||Number(val)<0||Number(val)>1000)){toast('Please enter a valid weight');render();return;}state.weights[el.dataset.weight]=val===''?'':Number(val);save();return;}if(el.matches('#importFile')&&el.files?.length){try{const raw=await el.files[0].text(),obj=JSON.parse(raw);if(obj.app!=='REPS'||!Array.isArray(obj.sessions)||!obj.settings||!obj.weights){toast('Not a valid REPS backup');return;}if(!confirm('Importing will replace all current progress on this device. Continue?'))return;const d=DEFAULT();state={settings:{...d.settings,...Object.fromEntries(Object.entries(obj.settings).filter(([key])=>key!=='comeback'))},weights:{...d.weights,...obj.weights},planned:obj.planned&&typeof obj.planned==='object'?obj.planned:{},planSets:{A:{...(obj.planSets?.A||{})},B:{...(obj.planSets?.B||{})}},threeSetDefaultsApplied:obj.threeSetDefaultsApplied===true,checkins:obj.checkins&&typeof obj.checkins==='object'?obj.checkins:{},proteinDays:obj.proteinDays&&typeof obj.proteinDays==='object'?obj.proteinDays:{},sessions:obj.sessions,measurements:Array.isArray(obj.measurements)?obj.measurements:[],active:obj.active&&Array.isArray(obj.active.steps)?obj.active:null};upgradeThreeSetDefaults();save();render();toast('Backup restored');}catch{toast('Could not read this backup file');}}});
+    if(el.matches('[data-weight]')){const val=el.value.trim();if(val!==''&&(!Number.isFinite(Number(val))||Number(val)<0||Number(val)>1000)){toast('Please enter a valid weight');render();return;}state.weights[el.dataset.weight]=val===''?'':Number(val);save();return;}if(el.matches('#importFile')&&el.files?.length){try{const raw=await el.files[0].text(),obj=JSON.parse(raw);if(obj.app!=='REPS'||!Array.isArray(obj.sessions)||!obj.settings||!obj.weights){toast('Not a valid REPS backup');return;}if(!confirm('Importing will replace all current progress on this device. Continue?'))return;const d=DEFAULT();state={settings:{...d.settings,...Object.fromEntries(Object.entries(obj.settings).filter(([key])=>key!=='comeback'))},weights:{...d.weights,...obj.weights},planned:obj.planned&&typeof obj.planned==='object'?obj.planned:{},planSets:{A:{...(obj.planSets?.A||{})},B:{...(obj.planSets?.B||{})}},threeSetDefaultsApplied:obj.threeSetDefaultsApplied===true,checkins:obj.checkins&&typeof obj.checkins==='object'?obj.checkins:{},proteinDays:obj.proteinDays&&typeof obj.proteinDays==='object'?obj.proteinDays:{},
+        exerciseNotes:obj.exerciseNotes&&typeof obj.exerciseNotes==='object'?obj.exerciseNotes:{},
+        lastBackupAt:Number(obj.lastBackupAt)||0,backupRemindedAt:Number(obj.backupRemindedAt)||0,sessions:obj.sessions,measurements:Array.isArray(obj.measurements)?obj.measurements:[],active:obj.active&&Array.isArray(obj.active.steps)?obj.active:null};upgradeThreeSetDefaults();save();render();toast('Backup restored');}catch{toast('Could not read this backup file');}}});
   document.addEventListener('input',e=>{
     if(e.target.matches('[data-exercise-note]')){
       const id=e.target.dataset.exerciseNote;
