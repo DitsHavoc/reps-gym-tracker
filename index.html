@@ -39,6 +39,10 @@
     .xpbar{height:12px;background:#13221b;border-radius:99px;margin:12px 0;overflow:hidden}
     .xpbar>div{height:100%;border-radius:99px;background:var(--accent)}
     .coach-card{background:var(--panel);border:1px solid var(--line);border-radius:15px;padding:15px;margin:9px 0}
+    .coach-next{display:grid;gap:4px;background:#223929;border:1px solid #52744a;border-radius:11px;padding:12px;color:#d8efc9;font-size:13px;line-height:1.5;margin:12px 0}
+    .coach-next strong{font-size:10px;text-transform:uppercase;letter-spacing:1px;color:#b9f268}
+    .coach-evidence{font-size:11px!important;line-height:1.6!important;color:#afc0b1!important;overflow-wrap:anywhere}
+    .coach-target-btn{margin:11px 0 14px;text-align:center;white-space:normal}
     .coach-card h3{font-size:15px;margin:0}
     .coach-card p{font-size:13px;color:#c1d0c4;line-height:1.55;margin:9px 0}
     .coach-card .row{align-items:start}
@@ -413,28 +417,49 @@
   return {...base,status:'build',label:oldBest&&best>oldBest?'Longer plank hold':'Build your holds',
     text:oldBest&&best>oldBest?'Your best hold has improved. Keep focusing on form before adding more time.':'Aim to match your last holds. Add about 5 seconds when they feel steady and comfortable.',last};
 }
+
+  // Explainable double progression based only on completed logged sets and ratings.
+  // Machine increments below are suggestions, never assertions about plate availability.
+  function progressionIncrement(id,load){
+    const unit=EXERCISES[id]?.unit;
+    if(unit==='kg/hand')return load>=10?2.5:1;
+    return load>0?5:2.5;
+  }
   function coachAdvice(id){
     const history=strengthHistory(id),target=targetReps(id),unit=EXERCISES[id].unit,pb=exercisePB(id);
     if(timedExercise(id))return timedCoach(id,history,pb);
     const base={id,pb,name:EXERCISES[id].name};
-    if(!history.length)return {...base,status:'new',label:'Start logging',text:'No completed sets yet. Record your weights, reps and effort for a couple of workouts to unlock personalised advice.',last:'No sessions yet'};
-    const step=history.at(-1).step,load=stableLoad(step);
-    const logged=step.sets.filter(x=>x.completed);
+    if(!history.length)return {...base,status:'new',label:'Start logging',text:'No completed sets yet. Your guidance will use your actual logged sets and effort.',evidence:'No recorded sessions for this lift',last:'No sessions yet'};
+    const entry=history.at(-1),step=entry.step,load=stableLoad(step),logged=step.sets.filter(x=>x.completed);
     const last=logged.map(x=>fmtN(Number(x.weight))+' kg × '+x.reps).join(' / ');
-    if(load===null)return {...base,status:'hold',label:'Establish a baseline',text:'Your last workout included different weights or unfinished sets. Log a full set of controlled repetitions at a consistent weight before progressing.',last};
-    if(step.effort==='hard'||logged.some(x=>Number(x.reps)<target))
-      return {...base,status:'hold',label:'Hold the weight',text:'Stay at '+fmtN(load)+' '+unit+' for now. Aim for controlled target reps; lower the load slightly if your technique struggles.',last};
-    if(readiness().state==='caution')return {...base,status:'hold',label:'Recovery first',text:readiness().text,last};
+    const effort=step.effort||'not rated';
+    const reps=logged.map(x=>Number(x.reps)||0);
+    const full=fullStrength(step);
+    const same=load!==null&&full;
+    const evidence='Last session ('+fmtDate(entry.session.date)+'): '+logged.length+' sets · '+(load===null?'mixed weights':fmtN(load)+' '+unit+' × '+reps.join(' / ')+' reps')+' · effort '+effort;
+    const baseline={...base,last,evidence,load:load??null};
+    if(load===null)return {...baseline,status:'hold',label:'Get a consistent baseline',text:'The latest session used mixed loads or unfinished sets. Complete your sets at one weight to unlock a reliable recommendation.',nextStep:'Repeat the exercise with controlled reps and a consistent weight'};
+    if(unit==='kg/hand'&&load>30)return {...baseline,status:'hold',label:'Check logged dumbbell weight',text:'REPS records dumbbell weights per hand. Please check the entry before using it for progression advice.',nextStep:'Confirm whether the recorded load is per hand or combined'};
+    const repGoal=Math.max(12,target);
+    const plan=fmtN(load)+' '+unit+' · aim for '+repGoal+' controlled reps in every set';
+    if(step.effort==='hard'||reps.some(n=>n<target))
+      return {...baseline,status:'hold',label:'Stay at this weight',text:'Your latest logged sets were hard or below the planned reps. Keep the weight steady until all sets are comfortable and controlled.',nextStep:fmtN(load)+' '+unit+' · reach '+target+' good reps per set'};
+    if(readiness().state==='caution')
+      return {...baseline,status:'hold',label:'Recovery first',text:readiness().text,nextStep:'Repeat '+fmtN(load)+' '+unit+' when recovered'};
     const recent=history.slice(-2);
-    const matched=recent.length===2&&recent.every(x=>fullStrength(x.step)&&stableLoad(x.step)===load);
-    const safe=matched&&recent.every(x=>x.step.effort!=='hard'&&x.step.sets.every(set=>Number(set.reps)>=target));
-    const excellent=safe&&recent.every(x=>x.step.sets.every(set=>Number(set.reps)>=target+2));
-    const easy=safe&&recent.every(x=>x.step.effort==='easy');
-    if(excellent||easy){
-      return {...base,status:'ready',label:'Ready to increase',text:'Two consistent full workouts at '+fmtN(load)+' '+unit+'. If your form is controlled, try the smallest available weight increase next time; it is optional.',last};
-    }
-    if(step.effort==='easy'&&history.length===1)return {...base,status:'build',label:'Looking promising',text:'That weight felt easy. Repeat it for another complete session before moving up.',last};
-    return {...base,status:'build',label:'Build your reps',text:'Stay at '+fmtN(load)+' '+unit+'. Try to add a controlled repetition to a set when comfortable, working towards '+(target+2)+' reps per set.',last};
+    const twoMatching=recent.length===2&&recent.every(x=>fullStrength(x.step)&&stableLoad(x.step)===load&&x.step.sets.length===step.sets.length);
+    const meetsTarget=twoMatching&&recent.every(x=>x.step.effort!=='hard'&&x.step.sets.every(set=>Number(set.reps)>=target));
+    const completedUpper=meetsTarget&&recent.every(x=>x.step.sets.every(set=>Number(set.reps)>=repGoal));
+    const twoEasy=meetsTarget&&recent.every(x=>x.step.effort==='easy');
+    const increment=progressionIncrement(id,load);
+    const nextLoad=Math.round((load+increment)*100)/100;
+    const largeJump=increment/load>0.1;
+    const qualified=completedUpper||twoEasy&&!largeJump;
+    const context=twoMatching?'Last two sessions: '+recent.map(x=>fmtDate(x.session.date)+' ('+x.step.sets.map(set=>set.reps).join('/')+' · '+(x.step.effort||'unrated')+')').join('; '):'Only '+(history.length===1?'one session':'one matching session')+' at this weight so far';
+    if(qualified)return {...baseline,status:'ready',label:'Ready to try heavier',text:'Two matching complete workouts '+(completedUpper?'reached '+repGoal+' reps in every set':'were both rated easy')+' at '+fmtN(load)+' '+unit+'. If your form is solid, try the next available increment; you can stay lighter if needed.',nextStep:'Optional next weight: '+fmtN(nextLoad)+' '+unit+' (if available); start around 8–10 controlled reps',evidence:context,proposedWeight:nextLoad};
+    if(twoEasy&&largeJump)return {...baseline,status:'build',label:'Build before a bigger jump',text:'Both sessions felt easy, but the likely next increment is more than 10% heavier. First work up to '+repGoal+' good reps in every set.',nextStep:plan,evidence:context};
+    if(reps.every(n=>n>=repGoal)&&history.length===1)return {...baseline,status:'build',label:'Repeat to confirm',text:'Your last workout met the upper rep goal. Repeat that result once more with good technique before increasing.',nextStep:plan,evidence};
+    return {...baseline,status:'build',label:'Build your reps',text:'Keep '+fmtN(load)+' '+unit+' and add controlled reps gradually. After two strong matching sessions, REPS can recommend a small weight increase.',nextStep:plan,evidence:context+' · '+evidence};
   }
   // Uses only the user's recorded finished sessions, never fabricated workout data.
   function previousPerformance(id){
@@ -653,13 +678,16 @@
     return `<div class="coach-card">
       <div class="row"><h3>${esc(a.name)}</h3><span class="coach-flag ${a.status==='ready'?'ready':a.status==='hold'?'hold':''}">${esc(a.label)}</span></div>
       <p>${esc(a.text)}</p>
+      ${a.nextStep?`<div class="coach-next"><strong>Next step</strong><span>${esc(a.nextStep)}</span></div>`:''}
+      ${a.evidence?`<p class="tiny muted coach-evidence"><strong>Based on your logs:</strong> ${esc(a.evidence)}</p>`:''}
+      ${a.status==='ready'&&Number.isFinite(a.proposedWeight)?`<button class="btn ghost block coach-target-btn" data-action="accept-coach-weight" data-id="${esc(a.id)}" data-weight="${a.proposedWeight}">Use ${fmtN(a.proposedWeight)} ${esc(EXERCISES[a.id].unit)} as next workout target</button>`:''}
       <div class="tiny muted"><strong style="color:#d7edc2">${esc(exerciseTrend(a.id))}</strong><div style="margin-top:5px">${a.pb?(timedExercise(a.id)?'Longest hold: '+a.pb.reps+' sec':'Personal best: '+fmtN(a.pb.weight)+' '+esc(EXERCISES[a.id].unit)+' × '+a.pb.reps+' reps'):'No personal best yet'}${brief?'':' · '+esc(a.last)}</div></div>
     </div>`;
   }
   function coachView(){
     const xp=trainingXP(),r=readiness(),check=state.checkins?.[localDate()],ids=[...new Set([...PLANS.A,...PLANS.B])];
     return `<p class="eyebrow">Training progress</p><h1>REPS Coach.</h1>
-      <p class="small muted">Game-style levelling with real training data. XP rewards consistency, not measured muscle growth.</p>
+      <p class="small muted">Progression recommendations use your completed sets, recorded weights, reps, effort and recovery check-in. Nothing is random or changed automatically. XP rewards consistency, not measured muscle growth.</p>
       <div class="coach-summary"><div class="coach-level"><div><span>TRAINING LEVEL</span><br><strong>LVL ${xp.level}</strong></div><div style="text-align:right"><strong style="font-size:22px">${xp.xp} XP</strong><br><span>${xp.next} XP to next level</span></div></div>
       <div class="xpbar" role="progressbar" aria-label="Level progress" aria-valuenow="${xp.progress}" aria-valuemin="0" aria-valuemax="250"><div style="width:${xp.progress/250*100}%"></div></div>
       <div class="row small"><span>${state.sessions.length} workouts logged</span><span>${xp.records} PB milestones</span></div></div>
@@ -940,7 +968,7 @@
         <button class="btn primary big block save-set-btn" data-action="logset">${icon('check')} Save set ${setIdx+1}</button>
         ${lastSet?`<button class="btn ghost block repeat-set-btn" data-action="repeat-last-set">Repeat last: ${fmtN(Number(lastSet.weight))} ${esc(unit)} × ${esc(lastSet.reps)} reps</button>`:''}
       </div>
-      ${strengthHistory(step.id).length?`<div class="mini-coach-tip"><strong>Coach:</strong> ${esc(coachAdvice(step.id).label)} <button data-nav="coach" class="text-link">See why</button></div>`:''}
+      ${strengthHistory(step.id).length?`<div class="mini-coach-tip"><strong>Coach:</strong> ${esc(coachAdvice(step.id).label)} · ${esc(coachAdvice(step.id).nextStep||'Keep logging')} <button data-nav="coach" class="text-link">See why</button></div>`:''}
       ${review}${noteMarkup}`;
   }
   function remaining(timer){if(!timer)return 0;return timer.paused?timer.left:Math.max(0,Math.ceil((timer.until-Date.now())/1000));}
@@ -1073,6 +1101,18 @@
   }
   function readSetInput(weightSelector='#weight',repsSelector='#reps'){const step=stepData();if(!step)return null;const weightEl=$(weightSelector),repsEl=$(repsSelector);if(!weightEl||!repsEl)return null;const weight=weightEl.value.trim(),reps=repsEl.value.trim();if(weight===''||!Number.isFinite(Number(weight))||Number(weight)<0||Number(weight)>1000){toast('Enter a valid weight (0 is fine for bodyweight)');weightEl.focus();return null;}if(!Number.isInteger(Number(reps))||Number(reps)<1||Number(reps)>(timedExercise(step.id)?300:100)){toast(timedExercise(step.id)?'Enter a hold from 1–300 seconds':'Enter a valid repetition count');repsEl.focus();return null;}return{weight:Number(weight),reps:Number(reps)};}
   function handleAction(action,el){let s=state.active,step=stepData();
+    if(action==='accept-coach-weight'){
+      const id=el.dataset.id,requested=Number(el.dataset.weight);
+      if(!EXERCISES[id]||timedExercise(id))return;
+      // Recalculate from finished logs so a stale rendered button cannot apply old advice.
+      const advice=coachAdvice(id);
+      if(advice.status!=='ready'||!Number.isFinite(requested)||advice.proposedWeight!==requested){
+        toast('Recommendation has changed — review your latest results');render();return;
+      }
+      state.planned[id]={...(state.planned[id]||{}),weight:requested};
+      state.weights[id]=requested;
+      save();render();toast('Next workout target updated to '+fmtN(requested)+' '+EXERCISES[id].unit+'. Your workout history was not changed.');return;
+    }
     if(action==='back-plan'||action==='save-exit'){
       if(s){
         for(const kind of ['rest','timer','exerciseBreak']){
