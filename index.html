@@ -130,6 +130,13 @@
     .entrypanel .field input{height:60px;border-radius:13px;font-size:24px;background:#101c15;border-color:#627564;text-align:center}
     .entrypanel .field label{font-size:12px}
     .save-set-btn{margin-top:16px}
+    .exercise-break-focus h1{font-size:clamp(28px,7vw,37px);margin-bottom:7px}
+    .exercise-break-focus .instruction strong{color:var(--accent)}
+    .exercise-break-panel{margin-top:15px}
+    .exercise-break-actions{display:grid;grid-template-columns:1fr 1fr;gap:9px}
+    .exercise-break-actions .btn{min-height:48px;font-size:13px;padding:10px 8px}
+    .exercise-break-actions [data-action="skip-exercise-break"]{grid-column:1/-1;min-height:52px;font-size:15px}
+    @media(min-width:430px){.exercise-break-actions{grid-template-columns:1fr 1fr 1.2fr}.exercise-break-actions [data-action="skip-exercise-break"]{grid-column:auto}}
     .rest-focus{background:#223d29;border-color:#708d59;padding:21px 15px 19px;margin:2px 0 10px}
     .rest-focus .count{font-size:clamp(66px,20vw,88px);letter-spacing:-4px;margin:13px auto 23px}
     .rest-focus .btn{min-height:48px}
@@ -747,7 +754,7 @@
   function newSession(variant){const steps=[{type:'tread',id:'warmup',title:'Treadmill warm-up',minutes:Number(state.settings.warmup),incline:0,desc:'Easy walking pace, 0–1% incline to warm your body up.',done:false,skipped:false}];
     for(const id of PLANS[variant]){const x=EXERCISES[id],count=exerciseSets(id,variant),weight=timedExercise(id)?0:plannedWeight(id),reps=targetReps(id);steps.push({type:'strength',id,title:x.name,targetReps:reps,targetSets:count,sets:Array.from({length:count},()=>({weight:'',reps,completed:false})),draftWeight:weight,draftReps:reps,done:false,skipped:false});}
     steps.push({type:'tread',id:'cardio',title:'Incline treadmill walk',minutes:Number(state.settings.cardio),incline:Number(state.settings.incline),desc:'Moderate pace: breathe harder but still be able to talk. Start with 1–3% incline and adjust comfortably.',done:false,skipped:false});
-    return {id:`s_${Date.now()}_${Math.floor(Math.random()*1e6)}`,date:localDate(),variant,startedAt:Date.now(),finishedAt:null,stepIndex:0,steps,rest:null,timer:null,partial:false};}
+    return {id:`s_${Date.now()}_${Math.floor(Math.random()*1e6)}`,date:localDate(),variant,startedAt:Date.now(),finishedAt:null,stepIndex:0,steps,rest:null,timer:null,exerciseBreak:null,partial:false};}
   function bestWeight(id){for(const s of state.sessions.slice().reverse()){for(const step of s.steps||[]){if(step.id===id&&step.type==='strength'){const sets=step.sets.filter(x=>x.completed&&x.weight!==''&&Number(x.weight)>=0);if(sets.length)return sets[sets.length-1].weight;}}}return state.weights[id]??'';}
   function stepData(){return state.active?.steps?.[state.active.stepIndex];}
   function setDoneCount(step){return step.sets.filter(x=>x.completed).length;}
@@ -786,21 +793,40 @@
     return true;
   }
 
+  function exerciseBreakMarkup(breakTimer,step){
+    const left=remaining(breakTimer);
+    return `<div class="focuscard exercise-break-focus">
+      <div class="focus-overline"><span class="stepindicator">RECOVER BETWEEN EXERCISES</span><span class="small muted">60-second break</span></div>
+      <h1>Catch your breath.</h1>
+      <p class="instruction">Up next: <strong>${esc(step.title)}</strong>. Have a drink, move to the next station and get set up.</p>
+      <div class="timerpanel rest-focus exercise-break-panel">
+        <div class="stepindicator">REST BEFORE NEXT EXERCISE</div>
+        <div class="count" id="clock-display" role="timer" aria-label="Time remaining before next exercise">${fmtTime(left)}</div>
+        <div class="exercise-break-actions">
+          <button class="btn ghost" data-action="toggle-exercise-break">${breakTimer.paused?'Resume':'Pause'}</button>
+          <button class="btn ghost" data-action="add-exercise-break">+30 sec</button>
+          <button class="btn primary" data-action="skip-exercise-break">Ready now</button>
+        </div>
+      </div>
+      <p class="small muted" style="margin:12px 0 0">This break is separate from rest between sets. Your next exercise appears automatically when the timer finishes.</p>
+    </div>`;
+  }
   function liveView(){
     const s=state.active,step=stepData();
     if(!step)return '<p>Workout data unavailable.</p>';
     const done=completedCount(s),progress=Math.round(done/s.steps.length*100);
     const next=s.steps.slice(s.stepIndex+1).find(x=>!x.done&&!x.skipped);
+    const switching=!!(s.exerciseBreak?.stepId===step.id&&remaining(s.exerciseBreak)>0);
     return `<div class="workout-header">
       <div class="row"><div><span class="eyebrow">WORKOUT ${esc(s.variant)} · ${fmtDate(s.date)}</span><h2>Keep it moving.</h2></div><button class="btn smallbtn ghost" data-action="back-plan">← Exit</button></div>
       <div class="row small muted" style="margin:11px 0 7px"><span>Step ${s.stepIndex+1} of ${s.steps.length}</span><strong>${progress}% complete</strong></div>
       <div class="progress"><div style="width:${progress}%"></div></div>
     </div>
-    <section class="focuscard lift-card">
+    ${switching?exerciseBreakMarkup(s.exerciseBreak,step):`<section class="focuscard lift-card">
       <div class="focus-overline"><span class="stepindicator">${step.type==='tread'?'TREADMILL':'STRENGTH'}</span><span class="small muted">${step.type==='strength'?`${setDoneCount(step)} / ${step.targetSets} sets done`:`${step.minutes} min planned`}</span></div>
       <h1>${esc(step.title)}</h1><p class="instruction">${esc(step.type==='strength'?EXERCISES[step.id].hint:step.desc)}</p>
       ${step.type==='strength'?strengthMarkup(step):treadMarkup(step)}
-    </section>
+    </section>`}
     ${next?`<div class="next-preview"><span class="tiny muted">UP NEXT</span><strong>${esc(next.title)}</strong></div>`:''}
     <details class="disclosure workout-disclosure"><summary>View all workout steps <span>${done} / ${s.steps.length} done</span></summary>
       <div class="timeline">${s.steps.map((x,i)=>`<button class="line ${i===s.stepIndex?'current':''} ${x.done?'done':''}" data-action="jump" data-step="${i}"><span class="index">${x.done?'✓':x.skipped?'–':String(i+1).padStart(2,'0')}</span><span class="name">${esc(x.title)}</span><span class="tag">${x.done?'Done':x.skipped?'Skipped':x.type==='strength'?`${setDoneCount(x)}/${x.targetSets} sets`:x.minutes+' min'}</span></button>`).join('')}</div>
@@ -958,17 +984,36 @@
       <button class="btn ${timerFinished?'primary':'ghost'} block tread-complete" data-action="done-tread">${icon('check')} <span>Mark complete &amp; continue</span></button>`;
   }
   function beep(){if(!state.settings.sound)return;try{const A=window.AudioContext||window.webkitAudioContext;if(!A)return;const c=new A(),o=c.createOscillator(),g=c.createGain();o.type='sine';o.frequency.value=770;g.gain.setValueAtTime(0.0001,c.currentTime);g.gain.exponentialRampToValueAtTime(.12,c.currentTime+.02);g.gain.exponentialRampToValueAtTime(.0001,c.currentTime+.3);o.connect(g).connect(c.destination);o.start();o.stop(c.currentTime+.31);setTimeout(()=>c.close(),600);}catch{}try{navigator.vibrate?.([100,80,100]);}catch{}}
-  function notifyRestFinished(){
+  function notifyRestFinished(kind='set'){
     if(!state.settings.restAlerts||typeof Notification==='undefined'||Notification.permission!=='granted')return;
-    try{navigator.serviceWorker?.ready.then(reg=>reg.showNotification('REPS · Rest finished',{
-      body:'Ready for your next set when you are.',
-      tag:'reps-rest',renotify:false,icon:'./icon-192.png',
+    try{navigator.serviceWorker?.ready.then(reg=>reg.showNotification(kind==='exercise'?'REPS · Exercise break finished':'REPS · Rest finished',{
+      body:kind==='exercise'?'Ready for your next exercise when you are.':'Ready for your next set when you are.',
+      tag:kind==='exercise'?'reps-exercise-break':'reps-rest',renotify:false,icon:'./icon-192.png',
     })).catch(()=>{});}catch{}
   }
-  function tick(){const active=state.active;if(!active)return;const timer=active.rest||active.timer;if(!timer)return;const el=$('#clock-display');if(el)el.textContent=fmtTime(remaining(timer));if(remaining(timer)===0&&!timer.paused){if(active.rest){active.rest=null;save();beep();notifyRestFinished();render();toast('Rest finished — next set');}else if(active.timer&&!active.timer.notified){const hold=timedExercise(active.timer.stepId);active.timer.notified=true;save();beep();if(hold)render();toast(hold?'Hold finished — log your seconds':'Time complete! Mark the walk done');}}}
+  function tick(){const active=state.active;if(!active)return;
+    if(active.exerciseBreak){
+      const transition=active.exerciseBreak,left=remaining(transition);
+      const display=$('#clock-display');if(display&&view==='today')display.textContent=fmtTime(left);
+      if(left===0&&!transition.paused){
+        active.exerciseBreak=null;save();beep();notifyRestFinished('exercise');
+        render();toast('Break finished — next exercise');
+      }
+      return;
+    }
+    const timer=active.rest||active.timer;if(!timer)return;const el=$('#clock-display');if(el)el.textContent=fmtTime(remaining(timer));if(remaining(timer)===0&&!timer.paused){if(active.rest){active.rest=null;save();beep();notifyRestFinished();render();toast('Rest finished — next set');}else if(active.timer&&!active.timer.notified){const hold=timedExercise(active.timer.stepId);active.timer.notified=true;save();beep();if(hold)render();toast(hold?'Hold finished — log your seconds':'Time complete! Mark the walk done');}}}
   function startClock(kind,stepId,secs){const timer={stepId,paused:false,left:secs,until:Date.now()+secs*1000,notified:false};if(kind==='rest')state.active.rest=timer;else state.active.timer=timer;save();render();}
   function toggleClock(kind){const t=state.active?.[kind];if(!t)return;if(t.paused){t.paused=false;t.until=Date.now()+t.left*1000;}else{t.left=remaining(t);t.paused=true;}save();render();}
-  function getStepAfter(){const s=state.active;let n=s.stepIndex+1;if(n>=s.steps.length){finishWorkout();return;}s.stepIndex=n;s.rest=null;s.timer=null;save();render();scrollTop();}
+  function getStepAfter(withExerciseBreak=false){
+    const s=state.active;if(!s)return;
+    const from=stepData(),n=s.stepIndex+1;
+    if(n>=s.steps.length){finishWorkout();return;}
+    const to=s.steps[n];
+    s.stepIndex=n;s.rest=null;s.timer=null;
+    const shouldRest=withExerciseBreak&&from?.type==='strength'&&from.done&&!from.skipped&&!to.done&&!to.skipped;
+    s.exerciseBreak=shouldRest?{stepId:to.id,paused:false,left:60,until:Date.now()+60000,notified:false}:null;
+    save();render();scrollTop();
+  }
   function finishWorkout(){const s=state.active;if(!s)return;const performed=s.steps.some(x=>x.done||x.sets?.some(y=>y.completed));if(!performed){if(!confirm('No work logged yet. Discard this session?'))return;state.active=null;save();render();return;}
     s.finishedAt=Date.now();s.partial=s.steps.some(x=>!x.done);state.sessions.push(s);state.active=null;save();view='history';expandedHistory=null;justFinishedId=s.id;render();scrollTop();toast('Workout saved — nice work!');}
   function scrollTop(){window.scrollTo({top:0,behavior:'smooth'});}
@@ -1030,7 +1075,7 @@
   function handleAction(action,el){let s=state.active,step=stepData();
     if(action==='back-plan'||action==='save-exit'){
       if(s){
-        for(const kind of ['rest','timer']){
+        for(const kind of ['rest','timer','exerciseBreak']){
           const timer=s[kind];
           if(timer&&!timer.paused){
             timer.left=remaining(timer);
@@ -1154,7 +1199,17 @@
       const data=readSetInput();if(data)saveActiveSet(data);return;
     }
     if(action==='undo-set'&&s&&step?.type==='strength'){s.editingSet=null;const idx=step.sets.map((x,i)=>x.completed?i:-1).filter(x=>x>=0).pop();if(idx===undefined)return;step.sets[idx].completed=false;step.done=false;s.rest=null;save();render();return;}
-    if(action==='next'&&s)return getStepAfter();
+    if(action==='next'&&s)return getStepAfter(true);
+    if(action==='toggle-exercise-break'&&s?.exerciseBreak)return toggleClock('exerciseBreak');
+    if(action==='add-exercise-break'&&s?.exerciseBreak){
+      const t=s.exerciseBreak;
+      if(t.paused)t.left=Math.min(1200,t.left+30);
+      else t.until=Date.now()+Math.min(1200,remaining(t)+30)*1000;
+      save();render();return;
+    }
+    if(action==='skip-exercise-break'&&s?.exerciseBreak){
+      s.exerciseBreak=null;save();render();toast('Next exercise ready');return;
+    }
     if(action==='preset-rest'&&s&&s.rest){
       const seconds=Number(el.dataset.seconds);
       if(![60,90,120].includes(seconds))return;
@@ -1200,9 +1255,9 @@
       }
       step.done=true;s.timer=null;save();return getStepAfter();
     }
-    if(action==='prev'&&s&&s.stepIndex>0){s.stepIndex--;s.rest=null;s.timer=null;save();render();scrollTop();return;}
-    if(action==='skip'&&s){if(!confirm(`Skip ${step.title}? You can return to it from the workout list.`))return;step.skipped=true;s.rest=null;s.timer=null;return getStepAfter();}
-    if(action==='jump'&&s){s.stepIndex=Number(el.dataset.step);s.rest=null;s.timer=null;save();render();scrollTop();return;}
+    if(action==='prev'&&s&&s.stepIndex>0){s.stepIndex--;s.rest=null;s.timer=null;s.exerciseBreak=null;save();render();scrollTop();return;}
+    if(action==='skip'&&s){if(!confirm(`Skip ${step.title}? You can return to it from the workout list.`))return;step.skipped=true;s.rest=null;s.timer=null;s.exerciseBreak=null;return getStepAfter();}
+    if(action==='jump'&&s){s.stepIndex=Number(el.dataset.step);s.rest=null;s.timer=null;s.exerciseBreak=null;save();render();scrollTop();return;}
     if(action==='end'&&s){if(!confirm('Finish and save this workout now, even if it is incomplete?'))return;finishWorkout();return;}
     if(action==='toggle-measure'){showMeasureForm=!showMeasureForm;render();return;}
     if(action==='save-measure'){const a=$('#bodyweight').value,b=$('#waist').value;if(!a&&!b){toast('Enter a weight or waist measurement');return;}if((a&&(Number(a)<20||Number(a)>400))||(b&&(Number(b)<20||Number(b)>250))){toast('Please check the values');return;}state.measurements.push({date:localDate(),weight:a?Number(a):null,waist:b?Number(b):null});save();showMeasureForm=false;render();toast('Measurement saved');return;}
@@ -1225,7 +1280,7 @@
       toast(action==='share-backup'?'Downloaded backup — you can upload it to Drive':'Backup downloaded');return;
     }
   }
-  document.addEventListener('click',e=>{const n=e.target.closest('[data-nav]');if(n){e.preventDefault();if(view==='today'&&state.active&&n.dataset.nav!=='today'){for(const kind of ['rest','timer']){const t=state.active[kind];if(t&&!t.paused){t.left=remaining(t);t.paused=true;}}save();}view=n.dataset.nav;if(view!=='history')justFinishedId=null;render();scrollTop();return;}const p=e.target.closest('[data-plan]');if(p){planTab=p.dataset.plan;render();return;}const h=e.target.closest('[data-history]');if(h){expandedHistory=expandedHistory===h.dataset.history?null:h.dataset.history;render();return;}const a=e.target.closest('[data-action]');if(a){handleAction(a.dataset.action,a);return;}});
+  document.addEventListener('click',e=>{const n=e.target.closest('[data-nav]');if(n){e.preventDefault();if(view==='today'&&state.active&&n.dataset.nav!=='today'){for(const kind of ['rest','timer','exerciseBreak']){const t=state.active[kind];if(t&&!t.paused){t.left=remaining(t);t.paused=true;}}save();}view=n.dataset.nav;if(view!=='history')justFinishedId=null;render();scrollTop();return;}const p=e.target.closest('[data-plan]');if(p){planTab=p.dataset.plan;render();return;}const h=e.target.closest('[data-history]');if(h){expandedHistory=expandedHistory===h.dataset.history?null:h.dataset.history;render();return;}const a=e.target.closest('[data-action]');if(a){handleAction(a.dataset.action,a);return;}});
   document.addEventListener('change',async e=>{const el=e.target;if(el.matches('#progress-exercise')){
     if(EXERCISES[el.value]){chartExercise=el.value;render();}return;
   }if(el.matches('[data-setting]')){const key=el.dataset.setting;const isBool=el.type==='checkbox';let value=isBool?el.checked:Number(el.value);if(!isBool){const min=Number(el.min),max=Number(el.max);if(!Number.isFinite(value))value=state.settings[key];value=Math.min(max,Math.max(min,value));}state.settings[key]=value;save();render();toast('Settings saved');return;}if(el.matches('[data-plan-sets]')){
