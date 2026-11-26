@@ -137,6 +137,9 @@
     .exercise-break-focus h1{font-size:clamp(28px,7vw,37px);margin-bottom:7px}
     .exercise-break-focus .instruction strong{color:var(--accent)}
     .exercise-break-panel{margin-top:15px}
+    .last-effort{margin-top:13px}
+    .last-effort>strong{font-size:13px;color:var(--accent)}
+    .dumbbell-entry-tip{margin:4px 0 11px;line-height:1.5}
     .exercise-break-actions{display:grid;grid-template-columns:1fr 1fr;gap:9px}
     .exercise-break-actions .btn{min-height:48px;font-size:13px;padding:10px 8px}
     .exercise-break-actions [data-action="skip-exercise-break"]{grid-column:1/-1;min-height:52px;font-size:15px}
@@ -836,7 +839,9 @@
           <button class="btn primary" data-action="skip-exercise-break">Ready now</button>
         </div>
       </div>
-      <p class="small muted" style="margin:12px 0 0">This break is separate from rest between sets. Your next exercise appears automatically when the timer finishes.</p>
+      <p class="small muted" style="margin:12px 0 0">Your next exercise appears automatically when the timer finishes.</p>
+      ${(() => {const prior=state.active?.steps?.[state.active.lastFinishedStepIndex];
+        return prior?.type==='strength'&&!prior.effort?`<div class="last-effort"><strong>Finished: ${esc(prior.title)}</strong>${effortMarkup(prior)}</div>`:'';})()}
     </div>`;
   }
   function liveView(){
@@ -845,6 +850,8 @@
     const done=completedCount(s),progress=Math.round(done/s.steps.length*100);
     const next=s.steps.slice(s.stepIndex+1).find(x=>!x.done&&!x.skipped);
     const switching=!!(s.exerciseBreak?.stepId===step.id&&remaining(s.exerciseBreak)>0);
+    const prior=s.steps?.[s.lastFinishedStepIndex];
+    const pendingRating=prior?.type==='strength'&&prior!==step&&!prior.effort;
     return `<div class="workout-header">
       <div class="row"><div><span class="eyebrow">WORKOUT ${esc(s.variant)} · ${fmtDate(s.date)}</span><h2>Keep it moving.</h2></div><button class="btn smallbtn ghost" data-action="back-plan">← Exit</button></div>
       <div class="row small muted" style="margin:11px 0 7px"><span>Step ${s.stepIndex+1} of ${s.steps.length}</span><strong>${progress}% complete</strong></div>
@@ -855,6 +862,7 @@
       <h1>${esc(step.title)}</h1><p class="instruction">${esc(step.type==='strength'?EXERCISES[step.id].hint:step.desc)}</p>
       ${step.type==='strength'?strengthMarkup(step):treadMarkup(step)}
     </section>`}
+    ${!switching&&pendingRating?`<details class="disclosure workout-disclosure last-effort"><summary>Rate previous exercise: ${esc(prior.title)} (optional)</summary>${effortMarkup(prior)}</details>`:''}
     ${next?`<div class="next-preview"><span class="tiny muted">UP NEXT</span><strong>${esc(next.title)}</strong></div>`:''}
     <details class="disclosure workout-disclosure"><summary>View all workout steps <span>${done} / ${s.steps.length} done</span></summary>
       <div class="timeline">${s.steps.map((x,i)=>`<button class="line ${i===s.stepIndex?'current':''} ${x.done?'done':''}" data-action="jump" data-step="${i}"><span class="index">${x.done?'✓':x.skipped?'–':String(i+1).padStart(2,'0')}</span><span class="name">${esc(x.title)}</span><span class="tag">${x.done?'Done':x.skipped?'Skipped':x.type==='strength'?`${setDoneCount(x)}/${x.targetSets} sets`:x.minutes+' min'}</span></button>`).join('')}</div>
@@ -866,11 +874,12 @@
     </details>`;
   }
   function effortMarkup(step){
+    const stepIndex=state.active?.steps?.indexOf(step)??-1;
     return `<div class="panel" style="background:#202f24;border-color:#5a704e;margin-top:12px">
       <div class="stepindicator">REPS COACH · EFFORT</div>
       <h3 style="margin-top:7px">How did those sets feel?</h3>
       <p class="small muted" style="margin:0">Optional. Think about how many more good reps you could have managed.</p>
-      <div class="effort-buttons">${[['easy','Easy','5+ left'],['good','Good','2–3 left'],['hard','Hard','0–1 left']].map(([key,label,detail])=>`<button data-action="rate-effort" data-effort="${key}" class="${step.effort===key?'chosen':''}">${label}<br><span class="tiny">${detail}</span></button>`).join('')}</div>
+      <div class="effort-buttons">${[['easy','Easy','5+ left'],['good','Good','2–3 left'],['hard','Hard','0–1 left']].map(([key,label,detail])=>`<button data-action="rate-effort" data-effort="${key}" data-effort-step="${stepIndex}" class="${step.effort===key?'chosen':''}">${label}<br><span class="tiny">${detail}</span></button>`).join('')}</div>
     </div>`;
   }
   function timedStrengthMarkup(step){
@@ -926,7 +935,7 @@
     const setIdx=currentSet(step),finished=setIdx===-1;
     const resting=state.active.rest?.stepId===step.id&&remaining(state.active.rest)>0;
     const edit=state.active.editingSet?.stepId===step.id?state.active.editingSet.index:-1;
-    const unit=EXERCISES[step.id].unit,done=step.sets.filter(x=>x.completed).length;
+    const unit=EXERCISES[step.id].unit,perHand=unit==='kg/hand',done=step.sets.filter(x=>x.completed).length;
     const lastSet=step.sets.slice().reverse().find(x=>x.completed);const noteMarkup=exerciseNoteMarkup(step.id);
     const kgStep=EXERCISES[step.id].unit==='kg/hand'?1:2.5;
     const rows=step.sets.map((set,i)=>{
@@ -952,7 +961,7 @@
     return `${heading}${chips}${lastTimeMarkup(step.id)}
       <div class="entrypanel">
         <div class="stepgrid">
-          <div class="field"><label for="weight">Weight (${esc(unit)})</label>
+          <div class="field"><label for="weight">${perHand?'One dumbbell (kg)':'Weight (kg)'}</label>
             <div class="quick-number"><button type="button" data-action="adjust-set-input" data-field="weight" data-delta="-${kgStep}" aria-label="Reduce weight by ${kgStep} kg">−</button>
               <input id="weight" type="number" min="0" max="1000" step="0.5" inputmode="decimal" value="${esc(step.draftWeight)}" aria-label="Weight in ${esc(unit)}">
               <button type="button" data-action="adjust-set-input" data-field="weight" data-delta="${kgStep}" aria-label="Increase weight by ${kgStep} kg">+</button>
@@ -965,6 +974,7 @@
             </div>
           </div>
         </div>
+        ${perHand?'<p class="tiny muted dumbbell-entry-tip">Enter the weight of ONE dumbbell, not the combined weight. For 2 × 20 kg, enter 20.</p>':''}
         <button class="btn primary big block save-set-btn" data-action="logset">${icon('check')} Save set ${setIdx+1}</button>
         ${lastSet?`<button class="btn ghost block repeat-set-btn" data-action="repeat-last-set">Repeat last: ${fmtN(Number(lastSet.weight))} ${esc(unit)} × ${esc(lastSet.reps)} reps</button>`:''}
       </div>
@@ -1037,6 +1047,7 @@
     const from=stepData(),n=s.stepIndex+1;
     if(n>=s.steps.length){finishWorkout();return;}
     const to=s.steps[n];
+    if(withExerciseBreak&&from?.type==='strength'&&from.done)s.lastFinishedStepIndex=s.stepIndex;
     s.stepIndex=n;s.rest=null;s.timer=null;
     const shouldRest=withExerciseBreak&&from?.type==='strength'&&from.done&&!from.skipped&&!to.done&&!to.skipped;
     s.exerciseBreak=shouldRest?{stepId:to.id,paused:false,left:60,until:Date.now()+60000,notified:false}:null;
@@ -1085,17 +1096,33 @@
     if(!state.active){if(!PLANS[variant])return;state.active=newSession(variant);save();}
     view='today';render();scrollTop();
   }
+  function validDumbbellEntry(step,weight){
+    if(EXERCISES[step.id]?.unit!=='kg/hand'||weight<=30)return true;
+    if(step.confirmedHighDumbbellWeight===weight)return true;
+    if(!confirm('Dumbbell weights are entered PER HAND. You entered '+fmtN(weight)+' kg. For two 20 kg dumbbells, enter 20, not 40. Is '+fmtN(weight)+' kg in EACH hand correct?')){
+      toast('Please enter the weight of one dumbbell');return false;
+    }
+    step.confirmedHighDumbbellWeight=weight;
+    return true;
+  }
   function saveActiveSet(data){
     const s=state.active,step=stepData();
     if(!s||step?.type!=='strength')return false;
     const index=currentSet(step);if(index<0)return false;
     const weight=Number(data.weight),reps=Number(data.reps);
     if(!Number.isFinite(weight)||weight<0||weight>1000||!Number.isInteger(reps)||reps<1||reps>(timedExercise(step.id)?300:100))return false;
+    if(!validDumbbellEntry(step,weight))return false;
     step.sets[index]={weight:timedExercise(step.id)?0:weight,reps,completed:true};
     if(timedExercise(step.id))s.timer=null;
     step.draftWeight=weight;step.draftReps=reps;state.weights[step.id]=weight;
     state.planned[step.id]={...state.planned[step.id],weight};
-    if(index===step.sets.length-1){step.done=true;save();render();scrollTop();toast('All sets done');}
+    if(index===step.sets.length-1){
+      step.done=true;
+      if(s.stepIndex<s.steps.length-1){
+        getStepAfter(true);
+        toast('Exercise complete — 60-second break started');
+      }else{save();render();scrollTop();toast('All sets done');}
+    }
     else{save();startClock('rest',step.id,restSeconds(step.id));scrollTop();}
     return true;
   }
@@ -1160,10 +1187,11 @@
       }
       save();render();toast(adjusted?adjusted+' exercises updated to 3 sets':'All exercises already have at least 3 sets');return;
     }
-    if(action==='rate-effort'&&s&&step?.type==='strength'){
-      const effort=el.dataset.effort;
-      if(!['easy','good','hard'].includes(effort)||!fullStrength(step))return;
-      step.effort=effort;save();render();toast('Effort recorded');return;
+    if(action==='rate-effort'&&s){
+      const effort=el.dataset.effort,index=Number(el.dataset.effortStep);
+      const rated=s.steps?.[index];
+      if(!['easy','good','hard'].includes(effort)||!Number.isInteger(index)||!rated||rated.type!=='strength'||!fullStrength(rated))return;
+      rated.effort=effort;save();render();toast('Effort recorded');return;
     }
     if(action==='toggle-alerts'){
       if(state.settings.restAlerts){state.settings.restAlerts=false;save();render();return;}
@@ -1210,7 +1238,7 @@
       const index=Number(el.dataset.index);
       if(!step.sets[index]?.completed)return;
       const data=readSetInput('#edit-weight','#edit-reps');
-      if(!data)return;
+      if(!data||!validDumbbellEntry(step,data.weight))return;
       step.sets[index]={...data,completed:true};
       s.editingSet=null;
       state.weights[step.id]=data.weight;
