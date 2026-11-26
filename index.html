@@ -50,6 +50,23 @@
     .history-future-label{display:flex;align-items:center;gap:9px;font-size:12px;color:#d3e0d3;margin-top:10px;line-height:1.5}
     .history-future-label input{width:20px;height:20px;flex-shrink:0;accent-color:#b9f268}
     .history-table-wrap{overflow-x:auto}
+    .progress-milestones h3,.four-week-review h3{font-size:17px;margin:0}
+    .milestone-list{display:grid;gap:13px}
+    .milestone-row{padding:13px 0;border-bottom:1px solid #3b5041}
+    .milestone-row:last-child{border-bottom:0}
+    .milestone-row .row{gap:9px;align-items:center;margin:5px 0}
+    .milestone-row strong{font-size:13px}
+    .milestone-complete{color:var(--accent)}
+    .milestone-track{width:100%;height:9px;background:#132419;border-radius:99px;overflow:hidden}
+    .milestone-track>div{height:100%;background:#b9f268;border-radius:99px}
+    .milestone-edit summary{font-size:12px;color:#c8d8c9;cursor:pointer}
+    .milestone-edit .stepgrid{margin:10px 0}
+    .review-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:12px 0}
+    .review-grid>div{display:grid;gap:4px;background:#263a2c;border-radius:9px;padding:10px 5px;text-align:center}
+    .review-grid strong{font-size:23px;color:var(--accent)}
+    .review-grid span{font-size:10px;color:#c5d3c5}
+    .backup-recovery{border-top:1px solid #485b47;padding-top:12px;margin-top:14px}
+    .backup-recovery strong{font-size:13px;color:var(--accent)}
     .coach-next{display:grid;gap:4px;background:#223929;border:1px solid #52744a;border-radius:11px;padding:12px;color:#d8efc9;font-size:13px;line-height:1.5;margin:12px 0}
     .coach-next strong{font-size:10px;text-transform:uppercase;letter-spacing:1px;color:#b9f268}
     .coach-evidence{font-size:11px!important;line-height:1.6!important;color:#afc0b1!important;overflow-wrap:anywhere}
@@ -312,10 +329,15 @@
     B:['leg_press','chest_press','db_row','db_shoulder_press','leg_curl','curls','plank']
   };
   const SWAPS={chest_press:'db_chest_press',db_chest_press:'chest_press',row:'db_row'};
+  const MILESTONE_DEFAULTS={
+    leg_press:{weight:125,reps:10},chest_press:{weight:50,reps:10},
+    pulldown:{weight:50,reps:10},db_row:{weight:15,reps:10},
+    db_shoulder_press:{weight:15,reps:10},plank:{weight:0,reps:45}
+  };
   const DEFAULT = () => ({
     settings:{ warmup:6, cardio:15, incline:2, bigRest:90, smallRest:60, sound:true, proteinCheck:false, restAlerts:false, keepAwake:false },
     weights:Object.fromEntries(Object.entries(EXERCISES).map(([id,x]) => [id,x.weight])),
-    planned:{}, planSets:{A:{},B:{}}, threeSetDefaultsApplied:true, checkins:{}, proteinDays:{}, exerciseNotes:{}, lastBackupAt:0, backupRemindedAt:0, sessions:[], measurements:[], active:null
+    planned:{}, milestones:{}, planSets:{A:{},B:{}}, threeSetDefaultsApplied:true, checkins:{}, proteinDays:{}, exerciseNotes:{}, lastBackupAt:0, backupRemindedAt:0, sessions:[], measurements:[], active:null
   });
   function load() {
     let saved;
@@ -326,6 +348,7 @@
       settings:{...d.settings,...Object.fromEntries(Object.entries(saved.settings||{}).filter(([key])=>key!=='comeback'))},
       weights:{...d.weights,...(saved.weights||{})},
       planned:saved.planned&&typeof saved.planned==='object'?saved.planned:{},
+      milestones:saved.milestones&&typeof saved.milestones==='object'?saved.milestones:{},
       planSets:{A:{...(saved.planSets?.A||{})},B:{...(saved.planSets?.B||{})}},
       threeSetDefaultsApplied:saved.threeSetDefaultsApplied===true,
       checkins:saved.checkins&&typeof saved.checkins==='object'?saved.checkins:{},
@@ -1128,6 +1151,99 @@
   function finishWorkout(){const s=state.active;if(!s)return;const performed=s.steps.some(x=>x.done||x.sets?.some(y=>y.completed));if(!performed){if(!confirm('No work logged yet. Discard this session?'))return;state.active=null;save();render();return;}
     s.finishedAt=Date.now();s.partial=s.steps.some(x=>!x.done);state.sessions.push(s);state.active=null;save();view='history';expandedHistory=null;justFinishedId=s.id;render();scrollTop();toast('Workout saved — nice work!');}
   function scrollTop(){window.scrollTo({top:0,behavior:'smooth'});}
+
+  function milestoneGoal(id){
+    if(!Object.prototype.hasOwnProperty.call(MILESTONE_DEFAULTS,id))return null;
+    const saved=state.milestones?.[id],d=MILESTONE_DEFAULTS[id];
+    const weight=Number(saved?.weight),reps=Number(saved?.reps);
+    if(timedExercise(id))return {weight:0,reps:Number.isInteger(reps)&&reps>=1&&reps<=300?reps:d.reps};
+    return {weight:Number.isFinite(weight)&&weight>0&&weight<=1000?weight:d.weight,reps:Number.isInteger(reps)&&reps>=1&&reps<=100?reps:d.reps};
+  }
+  function milestoneStatus(id){
+    const goal=milestoneGoal(id);if(!goal)return null;
+    const sets=strengthHistory(id).flatMap(x=>(x.step.sets||[]).filter(set=>set.completed));
+    const qualifies=sets.filter(x=>Number(x.reps)>=goal.reps&&
+      (timedExercise(id)||Number.isFinite(Number(x.weight))&&Number(x.weight)>0));
+    const best=timedExercise(id)
+      ?Math.max(0,...sets.map(x=>Number(x.reps)||0))
+      :Math.max(0,...qualifies.map(x=>Number(x.weight)||0));
+    const target=timedExercise(id)?goal.reps:goal.weight;
+    const achieved=best>=target;
+    return {id,goal,best,target,achieved,progress:Math.min(100,Math.round(best/target*100)),hasQualifiedSets:qualifies.length>0};
+  }
+  function milestonesMarkup(){
+    const ids=Object.keys(MILESTONE_DEFAULTS),stats=ids.map(milestoneStatus);
+    const achieved=stats.filter(s=>s.achieved).length;
+    return `<section class="panel progress-milestones">
+      <div class="row"><h3>Strength milestones</h3><strong class="small">${achieved} / ${ids.length} reached</strong></div>
+      <p class="small muted">Starter goals based on your current routine — change any goal below. A milestone is reached by one completed set at or above the target weight and reps. Dumbbells are per hand.</p>
+      <div class="milestone-list">${stats.map(x=>{
+        const timed=timedExercise(x.id),unit=timed?'sec':EXERCISES[x.id].unit;
+        const targetLabel=timed?x.goal.reps+' sec':fmtN(x.goal.weight)+' '+unit+' × '+x.goal.reps+' reps';
+        const bestLabel=timed?x.best+' sec':x.hasQualifiedSets?fmtN(x.best)+' '+unit+' for '+x.goal.reps+'+ reps':'No matching set yet';
+        return `<div class="milestone-row">
+          <div class="row"><strong>${esc(EXERCISES[x.id].name)}</strong><span class="tiny ${x.achieved?'milestone-complete':'muted'}">${x.achieved?'✓ Reached':'Working towards'}</span></div>
+          <div class="row small"><span>${esc(targetLabel)}</span><span class="muted">${x.progress}%</span></div>
+          <div class="milestone-track" role="progressbar" aria-label="${esc(EXERCISES[x.id].name)} progress towards milestone" aria-valuenow="${x.progress}" aria-valuemin="0" aria-valuemax="100"><div style="width:${x.progress}%"></div></div>
+          <p class="tiny muted" style="margin:7px 0">Best qualifying set: ${esc(bestLabel)}</p>
+          <details class="milestone-edit"><summary>Adjust this goal</summary>
+            <div class="stepgrid">
+              ${timed?'':`<div class="field"><label for="milestone-weight-${x.id}">Target weight (${esc(unit)})</label><input id="milestone-weight-${x.id}" type="number" min="0.5" max="1000" step="0.5" inputmode="decimal" value="${fmtN(x.goal.weight)}"></div>`}
+              <div class="field"><label for="milestone-reps-${x.id}">${timed?'Hold seconds':'Repetitions'}</label><input id="milestone-reps-${x.id}" type="number" min="1" max="${timed?300:100}" step="1" inputmode="numeric" value="${x.goal.reps}"></div>
+            </div><button class="btn ghost smallbtn" data-action="save-milestone" data-id="${x.id}">Save goal</button>
+          </details></div>`;
+      }).join('')}</div>
+      <p class="tiny muted" style="margin:10px 0 0">Progress is based on recorded sets meeting the goal's rep requirement, not estimated one-rep maximums. Your history is never changed by editing goals.</p>
+    </section>`;
+  }
+  function fourWeekReviewData(now=Date.now()){
+    const from=now-28*86400000,mid=now-14*86400000;
+    const sessions=state.sessions.filter(s=>s.finishedAt&&Number(s.finishedAt)>=from&&Number(s.finishedAt)<=now).slice().sort((a,b)=>a.finishedAt-b.finishedAt);
+    const first=sessions.filter(s=>s.finishedAt<mid),second=sessions.filter(s=>s.finishedAt>=mid);
+    const totalSets=sessions.reduce((n,s)=>n+(s.steps||[]).filter(x=>x.type==='strength').reduce((m,x)=>m+(x.sets||[]).filter(y=>y.completed).length,0),0);
+    const cardio=sessions.reduce((n,s)=>n+(s.steps||[]).filter(x=>x.id==='cardio'&&x.done).reduce((m,x)=>m+Number(x.actual?.minutes??x.minutes??0),0),0);
+    const weeks=new Set(sessions.map(s=>weekIndex(new Date((s.date||'')+'T12:00:00')))).size;
+    const ids=[...new Set([...PLANS.A,...PLANS.B])].filter(id=>!timedExercise(id));
+    const best=(group,id)=>{
+      const all=group.flatMap(s=>(s.steps||[]).filter(x=>x.type==='strength'&&x.id===id).flatMap(x=>x.sets||[]))
+        .filter(set=>set.completed&&Number(set.weight)>0&&Number(set.reps)>=8)
+        .sort((a,b)=>Number(b.weight)-Number(a.weight)||Number(b.reps)-Number(a.reps));
+      return all.length?{weight:Number(all[0].weight),reps:Number(all[0].reps)}:null;
+    };
+    const comparable=ids.map(id=>({id,a:best(first,id),b:best(second,id)})).filter(x=>x.a&&x.b);
+    const improved=comparable.filter(x=>x.b.weight>x.a.weight||(x.b.weight===x.a.weight&&x.b.reps>x.a.reps));
+    const early= sessions.length<6||first.length<2||second.length<2||weeks<3;
+    const measurements={};
+    for(const field of ['weight','waist']){
+      const data=state.measurements.filter(x=>x[field]!=null&&Number(x[field])>0)
+        .filter(x=>{const when=new Date(x.date+'T12:00:00').getTime();return when>=from&&when<=now;})
+        .slice().sort((a,b)=>a.date.localeCompare(b.date));
+      if(data.length>=2&&data[0].date!==data.at(-1).date)measurements[field]={start:Number(data[0][field]),end:Number(data.at(-1)[field]),change:Math.round((Number(data.at(-1)[field])-Number(data[0][field]))*10)/10};
+    }
+    return {sessions:sessions.length,sets:totalSets,cardio,weeks,first:first.length,second:second.length,comparable:comparable.length,improved:improved.length,early,measurements};
+  }
+  function fourWeekReviewMarkup(){
+    const d=fourWeekReviewData();
+    const measure=(field,label,unit)=>{
+      const m=d.measurements[field];
+      return m?`<p class="small">${label}: ${fmtN(m.start)} → ${fmtN(m.end)} ${unit} (${m.change>0?'+':''}${fmtN(m.change)} ${unit})</p>`:'';
+    };
+    const advice=d.early?'Not enough information for a reliable trend yet. Keep logging your normal A/B sessions; meaningful comparisons need around six workouts across at least three weeks, with sessions in both halves of the period.':
+      d.comparable===0?'You have enough sessions, but no lifts with comparable sets across both halves. Keep logging controlled reps on the same exercises.':
+      d.improved>0?`${d.improved} of ${d.comparable} comparable lifts improved in load or reps. Keep progressing gradually where your technique is solid.`:
+      'No clear increase across comparable lifts this period. Check your recovery and rest times, then build reps before adding weight.';
+    return `<section class="panel four-week-review">
+      <div class="row"><h3>Last 28 days</h3><span class="tiny muted">${d.early?'Building baseline':'Four-week review'}</span></div>
+      <div class="review-grid">
+        <div><strong>${d.sessions}</strong><span>Workouts</span></div><div><strong>${d.sets}</strong><span>Logged sets</span></div>
+        <div><strong>${d.cardio}</strong><span>Cardio mins</span></div><div><strong>${d.weeks}</strong><span>Weeks trained</span></div>
+      </div><p class="small" style="margin-top:12px">${esc(advice)}</p>
+      ${!d.early&&d.comparable?`<p class="tiny muted">Compared: ${d.first} workouts in the first fortnight vs ${d.second} in the second. ${d.improved}/${d.comparable} lifts improved at 8+ reps. Different exercises are never compared against each other.</p>`:''}
+      ${measure('weight','Body weight','kg')}${measure('waist','Waist','cm')}
+      ${!d.measurements.waist&&!d.measurements.weight?'<p class="tiny muted">Add weekly weight and waist measurements to see changes alongside strength. Scale weight alone cannot distinguish muscle from fat.</p>':''}
+      <p class="tiny muted">Uses only saved workouts and measurements from the past 28 days. No estimates of calories or muscle gained.</p>
+    </section>`;
+  }
   function historyView(){const arr=state.sessions.slice().sort((a,b)=>(b.finishedAt||0)-(a.finishedAt||0));const allSets=arr.reduce((n,s)=>n+s.steps.filter(x=>x.type==='strength').reduce((v,x)=>v+x.sets.filter(y=>y.completed).length,0),0);return `<p class="eyebrow">YOUR PROGRESS</p><h1>History.</h1>${justFinishedId?finishedSummaryMarkup(arr.find(x=>x.id===justFinishedId)):''}<div class="grid2"><div class="stat"><div class="label">Completed sessions</div><div class="num">${arr.length}</div></div><div class="stat"><div class="label">Sets logged</div><div class="num">${allSets}</div></div></div>
      ${backupReminder()}
       ${sectionTitle('This week')}
@@ -1137,6 +1253,8 @@
         <div><strong>${weeklyReport().cardio}</strong><span>Cardio mins</span></div>
       </div><p class="tiny muted" style="margin:7px 0">*Training volume counts dumbbells per hand ×2; it's not a measure of calories burned.</p>
       <div class="weekly-pbs">${weeklyReport().records?weeklyReport().records+' new weight milestones this week':'Keep logging to build your personal-best history.'}</div>
+      ${sectionTitle('Your four-week review')}${fourWeekReviewMarkup()}
+      ${sectionTitle('Milestones')}${milestonesMarkup()}
       ${sectionTitle('Strength progress')}
       <div class="panel"><div class="field" style="margin-bottom:14px"><label for="progress-exercise">Choose exercise</label>
         <select id="progress-exercise">${Object.entries(EXERCISES).filter(([id])=>PLANS.A.includes(id)||PLANS.B.includes(id)||strengthHistory(id).length).map(([id,x])=>`<option value="${id}" ${chartExercise===id?'selected':''}>${esc(x.name)}</option>`).join('')}</select>
@@ -1189,7 +1307,16 @@
       </div><button class="btn ghost smallbtn" data-action="toggle-alerts">${state.settings.restAlerts?'Turn off':'Enable'}</button></div>
     ${settingSwitch('Optional protein check-in','Show one gentle daily protein tick on Today. No timed alerts or supplement reminders.','proteinCheck',!!state.settings.proteinCheck)}</div>
     <details class="disclosure"><summary>Default starting weights</summary><div class="panel"><p class="small muted">Your last logged weight is suggested first. These are editable starting values, <strong>not targets you must reach</strong>. Dumbbell values are per hand; planks are timed.</p>${Object.entries(EXERCISES).filter(([id])=>!timedExercise(id)&&(PLANS.A.includes(id)||PLANS.B.includes(id)||id==='db_chest_press'||strengthHistory(id).length)).map(([id,x])=>`<div class="weightrow"><div class="small"><strong>${esc(x.name)}</strong><div class="tiny muted">${x.unit}</div></div><input aria-label="Starting weight for ${esc(x.name)}" data-weight="${id}" type="number" min="0" max="1000" step="0.5" inputmode="decimal" placeholder="—" value="${esc(state.weights[id])}" /></div>`).join('')}</div></details>
-    ${sectionTitle('Back up your progress')}<div class="panel"><p class="small muted">Your data is stored on this device, not automatically in the cloud. Download a backup or share one to Google Drive from your phone. Save a new backup occasionally.</p><div class="flexwrap"><button class="btn primary" data-action="export">${icon('download')} Download backup</button><button class="btn ghost" data-action="share-backup">Share / save to Drive</button><label class="btn ghost" for="importFile" style="cursor:pointer">Import backup</label><input id="importFile" type="file" accept=".json,application/json" hidden /></div></div>
+    ${sectionTitle('Back up your progress')}<div class="panel">
+      <p class="small muted">Your data lives on this device — it is not automatically backed up to the cloud. Download or share a backup after roughly three workouts or every seven days.</p>
+      <p class="tiny muted">Last download/share started: ${state.lastBackupAt?new Date(state.lastBackupAt).toLocaleString('en-GB'):'Not yet recorded'}</p>
+      <div class="flexwrap"><button class="btn primary" data-action="export">${icon('download')} Download backup</button>
+        <button class="btn ghost" data-action="share-backup">Share / save to Drive</button>
+        <label class="btn ghost" for="importFile" style="cursor:pointer">Import backup</label><input id="importFile" type="file" accept=".json,application/json" hidden /></div>
+      ${safetyCopyInfo()?`<div class="backup-recovery"><strong>Local recovery copy available</strong><p class="small muted">${esc(safetyCopyInfo().reason)} · ${new Date(safetyCopyInfo().createdAt).toLocaleString('en-GB')}. This copy is on the same device, not a substitute for an external backup.</p>
+        <div class="flexwrap"><button class="btn ghost smallbtn" data-action="download-safety-copy">Download safety copy</button><button class="btn ghost smallbtn" data-action="restore-safety-copy">Restore safety copy</button></div></div>`:
+      '<p class="tiny muted" style="margin-top:10px">Before an imported backup, historical edit or deletion, REPS will store a local recovery copy.</p>'}
+    </div>
     <div class="panel"><h3>About your plan</h3><p class="small muted mb0">Monday, Wednesday and Friday are suggested gym days. Workout A/B follows your last completed session even if you train on a different day. The app remembers where you were if you leave mid-session. Your treadmill is not controlled by this app; timers are guidance only.</p></div>`;}
   function settingSwitch(label,desc,key,v){return `<div class="setting-row row"><div><strong class="small">${label}</strong><p class="tiny muted" style="margin:4px 16px 0 0">${desc}</p></div><input type="checkbox" class="toggle" role="switch" aria-label="${label}" data-setting="${key}" ${v?'checked':''}></div>`;}
   function settingNumber(label,key,value,unit,min,max,step){return `<div class="setting-row row"><div><strong class="small">${label}</strong><div class="tiny muted">${unit}</div></div><div class="field"><input type="number" aria-label="${label}" data-setting="${key}" value="${value}" min="${min}" max="${max}" step="${step}" inputmode="decimal"></div></div>`;}
@@ -1230,6 +1357,16 @@
   }
   function readSetInput(weightSelector='#weight',repsSelector='#reps'){const step=stepData();if(!step)return null;const weightEl=$(weightSelector),repsEl=$(repsSelector);if(!weightEl||!repsEl)return null;const weight=weightEl.value.trim(),reps=repsEl.value.trim();if(weight===''||!Number.isFinite(Number(weight))||Number(weight)<0||Number(weight)>1000){toast('Enter a valid weight (0 is fine for bodyweight)');weightEl.focus();return null;}if(!Number.isInteger(Number(reps))||Number(reps)<1||Number(reps)>(timedExercise(step.id)?300:100)){toast(timedExercise(step.id)?'Enter a hold from 1–300 seconds':'Enter a valid repetition count');repsEl.focus();return null;}return{weight:Number(weight),reps:Number(reps)};}
   function handleAction(action,el){let s=state.active,step=stepData();
+    if(action==='save-milestone'){
+      const id=el.dataset.id;if(!Object.prototype.hasOwnProperty.call(MILESTONE_DEFAULTS,id))return;
+      const timed=timedExercise(id),weight=timed?0:Number($('#milestone-weight-'+id)?.value);
+      const reps=Number($('#milestone-reps-'+id)?.value);
+      if(!Number.isInteger(reps)||reps<1||reps>(timed?300:100)||!timed&&(!Number.isFinite(weight)||weight<=0||weight>1000)){
+        toast('Check your goal weight and reps');return;
+      }
+      state.milestones={...(state.milestones||{}),[id]:{weight,reps}};
+      save();render();toast('Milestone updated from your chosen target');return;
+    }
     if(action==='edit-history-set'){
       const session=state.sessions.find(x=>x.id===el.dataset.session);
       const si=Number(el.dataset.step),i=Number(el.dataset.set);
@@ -1531,7 +1668,7 @@
       state.planned[id]={...(state.planned[id]||{}),[isWeight?'weight':'reps']:isWeight&&val===''?'':n};
       save();render();toast('Workout target saved');return;
     }
-    if(el.matches('[data-weight]')){const val=el.value.trim();if(val!==''&&(!Number.isFinite(Number(val))||Number(val)<0||Number(val)>1000)){toast('Please enter a valid weight');render();return;}state.weights[el.dataset.weight]=val===''?'':Number(val);save();return;}if(el.matches('#importFile')&&el.files?.length){try{const raw=await el.files[0].text(),obj=JSON.parse(raw);if(obj.app!=='REPS'||!Array.isArray(obj.sessions)||!obj.settings||!obj.weights){toast('Not a valid REPS backup');return;}if(!confirm('Importing replaces current progress on this device. A local recovery copy will be kept. Continue?'))return;if(!createSafetyCopy('Before importing a backup')){toast('Cannot create recovery copy; import cancelled');return;}const d=DEFAULT();state={settings:{...d.settings,...Object.fromEntries(Object.entries(obj.settings).filter(([key])=>key!=='comeback'))},weights:{...d.weights,...obj.weights},planned:obj.planned&&typeof obj.planned==='object'?obj.planned:{},planSets:{A:{...(obj.planSets?.A||{})},B:{...(obj.planSets?.B||{})}},threeSetDefaultsApplied:obj.threeSetDefaultsApplied===true,checkins:obj.checkins&&typeof obj.checkins==='object'?obj.checkins:{},proteinDays:obj.proteinDays&&typeof obj.proteinDays==='object'?obj.proteinDays:{},
+    if(el.matches('[data-weight]')){const val=el.value.trim();if(val!==''&&(!Number.isFinite(Number(val))||Number(val)<0||Number(val)>1000)){toast('Please enter a valid weight');render();return;}state.weights[el.dataset.weight]=val===''?'':Number(val);save();return;}if(el.matches('#importFile')&&el.files?.length){try{const raw=await el.files[0].text(),obj=JSON.parse(raw);if(obj.app!=='REPS'||!Array.isArray(obj.sessions)||!obj.settings||!obj.weights){toast('Not a valid REPS backup');return;}if(!confirm('Importing replaces current progress on this device. A local recovery copy will be kept. Continue?'))return;if(!createSafetyCopy('Before importing a backup')){toast('Cannot create recovery copy; import cancelled');return;}const d=DEFAULT();state={settings:{...d.settings,...Object.fromEntries(Object.entries(obj.settings).filter(([key])=>key!=='comeback'))},weights:{...d.weights,...obj.weights},planned:obj.planned&&typeof obj.planned==='object'?obj.planned:{},milestones:obj.milestones&&typeof obj.milestones==='object'?obj.milestones:{},planSets:{A:{...(obj.planSets?.A||{})},B:{...(obj.planSets?.B||{})}},threeSetDefaultsApplied:obj.threeSetDefaultsApplied===true,checkins:obj.checkins&&typeof obj.checkins==='object'?obj.checkins:{},proteinDays:obj.proteinDays&&typeof obj.proteinDays==='object'?obj.proteinDays:{},
         exerciseNotes:obj.exerciseNotes&&typeof obj.exerciseNotes==='object'?obj.exerciseNotes:{},
         lastBackupAt:Number(obj.lastBackupAt)||0,backupRemindedAt:Number(obj.backupRemindedAt)||0,sessions:obj.sessions,measurements:Array.isArray(obj.measurements)?obj.measurements:[],active:obj.active&&Array.isArray(obj.active.steps)?obj.active:null};upgradeThreeSetDefaults();save();render();toast('Backup restored');}catch{toast('Could not read this backup file');}}});
   document.addEventListener('input',e=>{
