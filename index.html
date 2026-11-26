@@ -44,6 +44,12 @@
     .measurement-quick .row{gap:10px;align-items:center}
     .measurement-quick .row>div{min-width:0}
     .measurement-quick button{flex-shrink:0}
+    .history-edit-btn{margin-left:8px;min-width:54px}
+    .history-editor-row td{background:#26372c;padding:15px 10px}
+    .history-editor-row strong{color:var(--accent)}
+    .history-future-label{display:flex;align-items:center;gap:9px;font-size:12px;color:#d3e0d3;margin-top:10px;line-height:1.5}
+    .history-future-label input{width:20px;height:20px;flex-shrink:0;accent-color:#b9f268}
+    .history-table-wrap{overflow-x:auto}
     .coach-next{display:grid;gap:4px;background:#223929;border:1px solid #52744a;border-radius:11px;padding:12px;color:#d8efc9;font-size:13px;line-height:1.5;margin:12px 0}
     .coach-next strong{font-size:10px;text-transform:uppercase;letter-spacing:1px;color:#b9f268}
     .coach-evidence{font-size:11px!important;line-height:1.6!important;color:#afc0b1!important;overflow-wrap:anywhere}
@@ -284,6 +290,7 @@
   <script>
   'use strict';
   const STORAGE_KEY = 'reps_gym_v1';
+  const SAFETY_KEY = 'reps_gym_safety_v1';
   const EXERCISES = {
     leg_press: { name:'Seated leg press', gear:'Leg press machine', hint:'Feet flat, move smoothly and avoid locking your knees.', rest:90, base:3, reps:10, weight:115, unit:'kg' },
     chest_press: { name:'Chest press', gear:'Chest press machine', hint:'Shoulder blades steady; push without bouncing.', rest:90, base:3, reps:10, weight:45, unit:'kg' },
@@ -330,9 +337,28 @@
       active:saved.active&&Array.isArray(saved.active.steps)?saved.active:null
     };
   }
-  let state=load(), view='today', planTab='A', planEditorOpen=false, expandedHistory=null, justFinishedId=null, showMeasureForm=false, chartExercise='leg_press', toastTimer;
+  let state=load(), view='today', planTab='A', planEditorOpen=false, expandedHistory=null, editingHistory=null, justFinishedId=null, showMeasureForm=false, chartExercise='leg_press', toastTimer;
   let timerTick=null,wakeLock=null,wakeLockPending=false;
   function save(){ try {localStorage.setItem(STORAGE_KEY,JSON.stringify(state));} catch { toast('Could not save — storage may be full'); } }
+  function safetyCopyInfo(){
+    try{
+      const snap=JSON.parse(localStorage.getItem(SAFETY_KEY)||'null');
+      return snap&&snap.app==='REPS'&&snap.data&&Array.isArray(snap.data.sessions)?snap:null;
+    }catch{return null;}
+  }
+  function createSafetyCopy(reason){
+    try{
+      const snapshot={app:'REPS',createdAt:Date.now(),reason,data:JSON.parse(JSON.stringify(state))};
+      localStorage.setItem(SAFETY_KEY,JSON.stringify(snapshot));
+      return !!safetyCopyInfo();
+    }catch{return false;}
+  }
+  function downloadBackupData(data,filename){
+    const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
+    const url=URL.createObjectURL(blob),link=document.createElement('a');
+    link.href=url;link.download=filename;link.click();
+    setTimeout(()=>URL.revokeObjectURL(url),1000);
+  }
   const $=s=>document.querySelector(s);
   const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const fmtN=n=>(Math.round(n*100)/100).toString();
@@ -583,12 +609,14 @@
   function backupDue(){
     if(!state.sessions.length)return false;
     const earliest=Math.min(...state.sessions.map(s=>Number(s.finishedAt)||new Date((s.date||localDate())+'T12:00:00').getTime()).filter(Number.isFinite));
-    const last=Math.max(earliest,Number(state.lastBackupAt)||0,Number(state.backupRemindedAt)||0);
-    return Date.now()-last>=14*86400000;
+    const last=Math.max(earliest,Number(state.lastBackupAt)||0);
+    if(Date.now()-(Number(state.backupRemindedAt)||0)<2*86400000)return false;
+    const newer=state.sessions.filter(s=>Number(s.finishedAt)>Number(state.lastBackupAt||0)).length;
+    return newer>=3||Date.now()-last>=7*86400000;
   }
   function backupReminder(){
     if(!backupDue())return '';
-    return `<div class="backup-nudge"><div><strong>Keep your training log safe</strong><p class="small muted">Your workouts are stored on this device. It's been a while since a backup.</p></div>
+    return `<div class="backup-nudge"><div><strong>Keep your training log safe</strong><p class="small muted">Your workouts are saved on this device. Download or share a backup weekly, or after three new sessions.</p></div>
       <div class="flexwrap"><button class="btn primary smallbtn" data-action="export">Back up now</button><button class="btn ghost smallbtn" data-action="backup-later">Remind me later</button></div></div>`;
   }
   function sessionSummary(session){
@@ -1117,7 +1145,36 @@
       ${sectionTitle('Previous workouts')}${arr.length?arr.map(s=>historyItem(s)).join(''):`<div class="empty"><strong>Your first workout is waiting.</strong><span class="small">Finish a session and you'll see weights, reps and sets here.</span></div>`}
      <details class="disclosure" ${showMeasureForm?'open':''}><summary>Body measurements <span>${state.measurements.length} logged</span></summary><div class="panel"><p class="small muted">Optional: log your body weight and waist measurement weekly. Strength can improve even when the scale moves slowly.</p><button class="btn smallbtn ${showMeasureForm?'ghost':'primary'}" data-action="toggle-measure">${showMeasureForm?'Cancel':'Add measurement'}</button>${showMeasureForm?`<div class="stepgrid" style="margin-top:15px"><div class="field"><label for="bodyweight">Weight (kg)</label><input id="bodyweight" type="number" min="20" max="400" step="0.1" placeholder="Optional" inputmode="decimal" /></div><div class="field"><label for="waist">Waist (cm)</label><input id="waist" type="number" min="20" max="250" step="0.5" placeholder="Optional" inputmode="decimal" /></div></div><button class="btn primary block" style="margin-top:10px" data-action="save-measure">Save measurement</button>`:''}
      ${state.measurements.length?`<div class="divider"></div>${state.measurements.slice().reverse().map(x=>`<div class="row small" style="padding:8px 0"><span class="muted">${fmtDate(x.date)}</span><strong>${x.weight?esc(x.weight)+' kg':''}${x.weight&&x.waist?' · ':''}${x.waist?esc(x.waist)+' cm waist':''}</strong></div>`).join('')}`:''}</div></details>`;}
-  function historyItem(s){const expanded=expandedHistory===s.id;const sets=s.steps.filter(x=>x.type==='strength').reduce((v,x)=>v+x.sets.filter(y=>y.completed).length,0);return `<button class="history-item" data-history="${esc(s.id)}" aria-expanded="${expanded}"><div class="row"><strong>Workout ${esc(s.variant)} ${s.partial?'<span class="tiny muted">(partial)</span>':''}</strong><span class="badge">${sets} sets</span></div><div class="small muted" style="margin-top:7px">${fmtDate(s.date)} · ${Math.max(1,Math.round(((s.finishedAt||s.startedAt)-s.startedAt)/60000))} min · ${fmtN(totalVolume(s))} kg total volume</div></button>${expanded?`<div class="history-details"><table><thead><tr><th>Exercise</th><th>Weight</th><th>Reps / hold</th></tr></thead><tbody>${s.steps.map(x=>x.type==='strength'?x.sets.filter(t=>t.completed).map(t=>`<tr><td>${esc(x.title)}</td><td>${timedExercise(x.id)?'—':esc(t.weight)+' kg'}</td><td>${esc(t.reps)}${timedExercise(x.id)?' sec':''}</td></tr>`).join(''):`<tr><td>${esc(x.title)}</td><td colspan="2">${x.done?(x.actual?.minutes??x.minutes)+' min'+(x.id==='cardio'?', '+(x.actual?.incline??x.incline)+'% incline'+(x.actual?.speed?' @ '+x.actual.speed+' km/h':''):''):'Not completed'}</td></tr>`).join('')}</tbody></table><button class="btn danger smallbtn" style="margin-top:12px" data-action="delete-history" data-id="${esc(s.id)}">Delete this workout</button></div>`:''}`;}
+
+  function historyEditRow(session,step,stepIndex,set,setIndex){
+    const id=session.id,editing=editingHistory?.sessionId===id&&editingHistory?.stepIndex===stepIndex&&editingHistory?.setIndex===setIndex;
+    const timed=timedExercise(step.id),unit=EXERCISES[step.id]?.unit||'kg';
+    if(!editing)return `<tr><td>${esc(step.title)}${set.corrections?.length?'<span class="tiny muted"> · corrected</span>':''}</td>
+      <td>${timed?'—':esc(fmtN(Number(set.weight)))+' '+esc(unit)}</td><td>${esc(set.reps)}${timed?' sec':' reps'}
+      <button class="btn ghost smallbtn history-edit-btn" data-action="edit-history-set" data-session="${esc(id)}" data-step="${stepIndex}" data-set="${setIndex}" aria-label="Edit logged set for ${esc(step.title)}">Edit</button></td></tr>`;
+    return `<tr class="history-editor-row"><td colspan="3">
+      <strong>Correct ${esc(step.title)} · set ${setIndex+1}</strong>
+      <p class="tiny muted" style="margin:6px 0 10px">Correct only this completed set. Original values remain in its correction record. Dumbbells are recorded per hand.</p>
+      <div class="stepgrid">
+        ${timed?'<input type="hidden" id="history-edit-weight" value="0">':`<div class="field"><label for="history-edit-weight">${unit==='kg/hand'?'One dumbbell (kg)':'Weight (kg)'}</label><input id="history-edit-weight" type="number" min="0" max="1000" step="0.5" inputmode="decimal" value="${esc(set.weight)}"></div>`}
+        <div class="field"><label for="history-edit-reps">${timed?'Seconds held':'Repetitions'}</label><input id="history-edit-reps" type="number" min="1" max="${timed?300:100}" step="1" inputmode="numeric" value="${esc(set.reps)}"></div>
+      </div>
+      ${!timed?`<label class="history-future-label"><input type="checkbox" id="history-use-next"> Also use this weight as my next workout target</label>`:''}
+      <div class="flexwrap" style="margin-top:12px"><button class="btn primary smallbtn" data-action="save-history-set">Save correction</button><button class="btn ghost smallbtn" data-action="cancel-history-edit">Cancel</button></div>
+    </td></tr>`;
+  }
+  function historyItem(s){
+    const expanded=expandedHistory===s.id;
+    const sets=(s.steps||[]).filter(x=>x.type==='strength').reduce((v,x)=>v+(x.sets||[]).filter(y=>y.completed).length,0);
+    return `<button class="history-item" data-history="${esc(s.id)}" aria-expanded="${expanded}">
+      <div class="row"><strong>Workout ${esc(s.variant)} ${s.partial?'<span class="tiny muted">(partial)</span>':''}</strong><span class="badge">${sets} sets</span></div>
+      <div class="small muted" style="margin-top:7px">${fmtDate(s.date)} · ${Math.max(1,Math.round(((s.finishedAt||s.startedAt)-s.startedAt)/60000))} min · ${fmtN(totalVolume(s))} kg total volume</div>
+    </button>${expanded?`<div class="history-details"><p class="tiny muted">Use Edit beside a set to correct a logging mistake. Your other sets and sessions are untouched.</p>
+    <div class="history-table-wrap"><table><thead><tr><th>Exercise</th><th>Weight</th><th>Reps / hold</th></tr></thead><tbody>
+    ${(s.steps||[]).map((x,si)=>x.type==='strength'?(x.sets||[]).map((set,i)=>set.completed?historyEditRow(s,x,si,set,i):'').join(''):`<tr><td>${esc(x.title)}</td><td colspan="2">${x.done?(x.actual?.minutes??x.minutes)+' min'+(x.id==='cardio'?', '+(x.actual?.incline??x.incline)+'% incline'+(x.actual?.speed?' @ '+x.actual.speed+' km/h':''):''):'Not completed'}</td></tr>`).join('')}
+    </tbody></table></div>
+    <button class="btn danger smallbtn" style="margin-top:12px" data-action="delete-history" data-id="${esc(s.id)}">Delete this workout</button></div>`:''}`;
+  }
   function settingsView(){return `<p class="eyebrow">Make it yours</p><h1>Settings.</h1><p class="small muted">Your timer, weights and training phase. Changes are saved automatically.</p><div class="panel"><h3>Training</h3>
     ${settingNumber('Rest between sets · larger lifts','bigRest',state.settings.bigRest,'seconds',30,300,15)}
     ${settingNumber('Rest between sets · smaller lifts','smallRest',state.settings.smallRest,'seconds',30,300,15)}
@@ -1173,6 +1230,37 @@
   }
   function readSetInput(weightSelector='#weight',repsSelector='#reps'){const step=stepData();if(!step)return null;const weightEl=$(weightSelector),repsEl=$(repsSelector);if(!weightEl||!repsEl)return null;const weight=weightEl.value.trim(),reps=repsEl.value.trim();if(weight===''||!Number.isFinite(Number(weight))||Number(weight)<0||Number(weight)>1000){toast('Enter a valid weight (0 is fine for bodyweight)');weightEl.focus();return null;}if(!Number.isInteger(Number(reps))||Number(reps)<1||Number(reps)>(timedExercise(step.id)?300:100)){toast(timedExercise(step.id)?'Enter a hold from 1–300 seconds':'Enter a valid repetition count');repsEl.focus();return null;}return{weight:Number(weight),reps:Number(reps)};}
   function handleAction(action,el){let s=state.active,step=stepData();
+    if(action==='edit-history-set'){
+      const session=state.sessions.find(x=>x.id===el.dataset.session);
+      const si=Number(el.dataset.step),i=Number(el.dataset.set);
+      if(!session||!Number.isInteger(si)||!Number.isInteger(i)||session.steps?.[si]?.type!=='strength'||!session.steps[si].sets?.[i]?.completed)return;
+      expandedHistory=session.id;editingHistory={sessionId:session.id,stepIndex:si,setIndex:i};
+      render();return;
+    }
+    if(action==='cancel-history-edit'){editingHistory=null;render();return;}
+    if(action==='save-history-set'){
+      if(!editingHistory)return;
+      const session=state.sessions.find(x=>x.id===editingHistory.sessionId),entry=session?.steps?.[editingHistory.stepIndex];
+      const set=entry?.sets?.[editingHistory.setIndex];
+      if(!set?.completed||entry.type!=='strength'||!EXERCISES[entry.id])return;
+      const timed=timedExercise(entry.id),kg=timed?0:Number($('#history-edit-weight')?.value);
+      const reps=Number($('#history-edit-reps')?.value);
+      if(!Number.isFinite(kg)||kg<0||kg>1000||!Number.isInteger(reps)||reps<1||reps>(timed?300:100)){
+        toast('Check the weight and reps before saving');return;
+      }
+      if(!timed&&EXERCISES[entry.id].unit==='kg/hand'&&kg>30&&!confirm('Please confirm '+fmtN(kg)+' kg is in EACH hand, not combined. Continue?'))return;
+      const changeTarget=!timed&&$('#history-use-next')?.checked===true;
+      if(kg===Number(set.weight)&&reps===Number(set.reps)&&!changeTarget){editingHistory=null;render();return;}
+      if(!createSafetyCopy('Before correcting a completed workout')){toast('Could not save a recovery copy; correction cancelled');return;}
+      if(kg!==Number(set.weight)||reps!==Number(set.reps)){
+        const old={weight:set.weight,reps:set.reps,changedAt:Date.now()};
+        set.corrections=[...(set.corrections||[]),old];
+        set.weight=kg;set.reps=reps;
+      }
+      if(changeTarget){state.planned[entry.id]={...(state.planned[entry.id]||{}),weight:kg};state.weights[entry.id]=kg;}
+      editingHistory=null;save();render();
+      toast(changeTarget?'Set corrected; next workout weight updated':'Set corrected; future targets unchanged');return;
+    }
     if(action==='accept-coach-reps'){
       const id=el.dataset.id,requested=Number(el.dataset.reps);
       if(proposedRepTarget(id)!==requested||!Number.isInteger(requested)){
@@ -1387,7 +1475,22 @@
     if(action==='end'&&s){if(!confirm('Finish and save this workout now, even if it is incomplete?'))return;finishWorkout();return;}
     if(action==='toggle-measure'){showMeasureForm=!showMeasureForm;render();return;}
     if(action==='save-measure'){const a=$('#bodyweight').value,b=$('#waist').value;if(!a&&!b){toast('Enter a weight or waist measurement');return;}if((a&&(Number(a)<20||Number(a)>400))||(b&&(Number(b)<20||Number(b)>250))){toast('Please check the values');return;}state.measurements.push({date:localDate(),weight:a?Number(a):null,waist:b?Number(b):null});save();showMeasureForm=false;render();toast('Measurement saved');return;}
-    if(action==='delete-history'){if(!confirm('Delete this workout permanently?'))return;state.sessions=state.sessions.filter(x=>x.id!==el.dataset.id);expandedHistory=null;save();render();return;}
+    if(action==='delete-history'){if(!confirm('Delete this workout permanently? A local recovery copy will be kept.'))return;if(!createSafetyCopy('Before deleting a workout')){toast('Recovery copy failed; workout not deleted');return;}state.sessions=state.sessions.filter(x=>x.id!==el.dataset.id);expandedHistory=null;editingHistory=null;save();render();return;}
+    if(action==='download-safety-copy'){
+      const copy=safetyCopyInfo();
+      if(!copy){toast('No recovery copy available');return;}
+      downloadBackupData({app:'REPS',version:2,exportedAt:new Date(copy.createdAt).toISOString(),...copy.data},'reps-safety-copy-'+localDate(new Date(copy.createdAt))+'.json');
+      toast('Recovery copy download started');return;
+    }
+    if(action==='restore-safety-copy'){
+      const copy=safetyCopyInfo();
+      if(!copy)return;
+      if(!confirm('Restore the local safety copy from '+new Date(copy.createdAt).toLocaleString('en-GB')+'? It replaces current progress on this device. Download a backup first if needed.'))return;
+      // Check the snapshot and save the current data first so this can be reversed.
+      const replacement=copy.data;
+      if(!Array.isArray(replacement.sessions)||!replacement.settings||!replacement.weights||!createSafetyCopy('Before restoring a recovery copy')){toast('Could not safely restore');return;}
+      state=replacement;editingHistory=null;expandedHistory=null;save();render();toast('Safety copy restored');return;
+    }
     if(action==='export'||action==='share-backup'){
       const data=JSON.stringify({app:'REPS',version:2,exportedAt:new Date().toISOString(),...state},null,2);
       const filename=`reps-backup-${localDate()}.json`;
@@ -1400,13 +1503,12 @@
           return;
         }
       }
-      const blob=new Blob([data],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');
-      a.href=url;a.download=filename;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+      downloadBackupData(JSON.parse(data),filename);
       state.lastBackupAt=Date.now();save();render();
       toast(action==='share-backup'?'Downloaded backup — you can upload it to Drive':'Backup downloaded');return;
     }
   }
-  document.addEventListener('click',e=>{const n=e.target.closest('[data-nav]');if(n){e.preventDefault();if(view==='today'&&state.active&&n.dataset.nav!=='today'){for(const kind of ['rest','timer','exerciseBreak']){const t=state.active[kind];if(t&&!t.paused){t.left=remaining(t);t.paused=true;}}save();}view=n.dataset.nav;if(view!=='history')justFinishedId=null;render();scrollTop();return;}const p=e.target.closest('[data-plan]');if(p){planTab=p.dataset.plan;render();return;}const h=e.target.closest('[data-history]');if(h){expandedHistory=expandedHistory===h.dataset.history?null:h.dataset.history;render();return;}const a=e.target.closest('[data-action]');if(a){handleAction(a.dataset.action,a);return;}});
+  document.addEventListener('click',e=>{const n=e.target.closest('[data-nav]');if(n){e.preventDefault();if(view==='today'&&state.active&&n.dataset.nav!=='today'){for(const kind of ['rest','timer','exerciseBreak']){const t=state.active[kind];if(t&&!t.paused){t.left=remaining(t);t.paused=true;}}save();}view=n.dataset.nav;if(view!=='history')justFinishedId=null;render();scrollTop();return;}const p=e.target.closest('[data-plan]');if(p){planTab=p.dataset.plan;render();return;}const h=e.target.closest('[data-history]');if(h){expandedHistory=expandedHistory===h.dataset.history?null:h.dataset.history;editingHistory=null;render();return;}const a=e.target.closest('[data-action]');if(a){handleAction(a.dataset.action,a);return;}});
   document.addEventListener('change',async e=>{const el=e.target;if(el.matches('#progress-exercise')){
     if(EXERCISES[el.value]){chartExercise=el.value;render();}return;
   }if(el.matches('[data-setting]')){const key=el.dataset.setting;const isBool=el.type==='checkbox';let value=isBool?el.checked:Number(el.value);if(!isBool){const min=Number(el.min),max=Number(el.max);if(!Number.isFinite(value))value=state.settings[key];value=Math.min(max,Math.max(min,value));}state.settings[key]=value;save();render();toast('Settings saved');return;}if(el.matches('[data-plan-sets]')){
@@ -1429,7 +1531,7 @@
       state.planned[id]={...(state.planned[id]||{}),[isWeight?'weight':'reps']:isWeight&&val===''?'':n};
       save();render();toast('Workout target saved');return;
     }
-    if(el.matches('[data-weight]')){const val=el.value.trim();if(val!==''&&(!Number.isFinite(Number(val))||Number(val)<0||Number(val)>1000)){toast('Please enter a valid weight');render();return;}state.weights[el.dataset.weight]=val===''?'':Number(val);save();return;}if(el.matches('#importFile')&&el.files?.length){try{const raw=await el.files[0].text(),obj=JSON.parse(raw);if(obj.app!=='REPS'||!Array.isArray(obj.sessions)||!obj.settings||!obj.weights){toast('Not a valid REPS backup');return;}if(!confirm('Importing will replace all current progress on this device. Continue?'))return;const d=DEFAULT();state={settings:{...d.settings,...Object.fromEntries(Object.entries(obj.settings).filter(([key])=>key!=='comeback'))},weights:{...d.weights,...obj.weights},planned:obj.planned&&typeof obj.planned==='object'?obj.planned:{},planSets:{A:{...(obj.planSets?.A||{})},B:{...(obj.planSets?.B||{})}},threeSetDefaultsApplied:obj.threeSetDefaultsApplied===true,checkins:obj.checkins&&typeof obj.checkins==='object'?obj.checkins:{},proteinDays:obj.proteinDays&&typeof obj.proteinDays==='object'?obj.proteinDays:{},
+    if(el.matches('[data-weight]')){const val=el.value.trim();if(val!==''&&(!Number.isFinite(Number(val))||Number(val)<0||Number(val)>1000)){toast('Please enter a valid weight');render();return;}state.weights[el.dataset.weight]=val===''?'':Number(val);save();return;}if(el.matches('#importFile')&&el.files?.length){try{const raw=await el.files[0].text(),obj=JSON.parse(raw);if(obj.app!=='REPS'||!Array.isArray(obj.sessions)||!obj.settings||!obj.weights){toast('Not a valid REPS backup');return;}if(!confirm('Importing replaces current progress on this device. A local recovery copy will be kept. Continue?'))return;if(!createSafetyCopy('Before importing a backup')){toast('Cannot create recovery copy; import cancelled');return;}const d=DEFAULT();state={settings:{...d.settings,...Object.fromEntries(Object.entries(obj.settings).filter(([key])=>key!=='comeback'))},weights:{...d.weights,...obj.weights},planned:obj.planned&&typeof obj.planned==='object'?obj.planned:{},planSets:{A:{...(obj.planSets?.A||{})},B:{...(obj.planSets?.B||{})}},threeSetDefaultsApplied:obj.threeSetDefaultsApplied===true,checkins:obj.checkins&&typeof obj.checkins==='object'?obj.checkins:{},proteinDays:obj.proteinDays&&typeof obj.proteinDays==='object'?obj.proteinDays:{},
         exerciseNotes:obj.exerciseNotes&&typeof obj.exerciseNotes==='object'?obj.exerciseNotes:{},
         lastBackupAt:Number(obj.lastBackupAt)||0,backupRemindedAt:Number(obj.backupRemindedAt)||0,sessions:obj.sessions,measurements:Array.isArray(obj.measurements)?obj.measurements:[],active:obj.active&&Array.isArray(obj.active.steps)?obj.active:null};upgradeThreeSetDefaults();save();render();toast('Backup restored');}catch{toast('Could not read this backup file');}}});
   document.addEventListener('input',e=>{
